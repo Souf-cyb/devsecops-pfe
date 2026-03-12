@@ -1,6 +1,6 @@
 {
-  "name": "devsecops/vulnerable-app",
-  "description": "Application vulnérable pour PFE DevSecOps",
+  "name": "devsecops/vulnshop",
+  "description": "Application e-commerce vulnérable pour PFE DevSecOps",
   "require": {
     "phpmailer/phpmailer": "5.2.14",
     "guzzlehttp/guzzle": "6.2.0",
