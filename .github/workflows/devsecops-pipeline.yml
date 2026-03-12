@@ -18,6 +18,7 @@ jobs:
           pip install semgrep
           mkdir -p reports
           semgrep --config=p/owasp-top-ten ./app --json > reports/semgrep-report.json || true
+          semgrep --config=p/php ./app --json >> reports/semgrep-report.json || true
 
       - name: Upload Semgrep Report
         uses: actions/upload-artifact@v4
@@ -62,10 +63,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Pull Juice Shop image
+      - name: Build VulnShop image
         run: |
-          docker pull bkimminich/juice-shop
-          echo "✅ Juice Shop pulled successfully"
+          docker build -t vulnshop ./app
+          echo "✅ VulnShop built successfully"
 
   dast-zap:
     name: DAST - OWASP ZAP
@@ -75,13 +76,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Start Juice Shop
+      - name: Start VulnShop
         run: |
-          docker run -d -p 3000:3000 --name juiceshop bkimminich/juice-shop
-          echo "Waiting for Juice Shop to start..."
-          sleep 40
-          curl -s http://localhost:3000 || echo "Still starting..."
-          sleep 20
+          docker build -t vulnshop ./app
+          docker run -d -p 80:80 --name vulnshop vulnshop
+          echo "Waiting for VulnShop to start..."
+          sleep 30
+          curl -s http://localhost:80 || echo "Still starting..."
+          sleep 10
 
       - name: Create ZAP work directory
         run: |
@@ -89,13 +91,13 @@ jobs:
           chmod 777 zap-work
           chmod 777 .
 
-      - name: Run ZAP Scan on Juice Shop
+      - name: Run ZAP Full Scan
         run: |
           docker run --network=host \
             -v $(pwd)/zap-work:/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py \
-            -t http://localhost:3000 \
+            zap-full-scan.py \
+            -t http://localhost:80 \
             -r report_html.html \
             -J report_json.json \
             -I || true
