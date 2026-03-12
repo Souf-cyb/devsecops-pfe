@@ -1,29 +1,25 @@
 <?php
 require_once 'config.php';
 
-// Vulnérabilité : Pas d'authentification sur l'API
-// Vulnérabilité : Headers de sécurité manquants
-
 header('Content-Type: application/json');
+// Vulnérabilité : Pas de headers de sécurité
+// Vulnérabilité : Pas d'authentification
 
 $conn = getDB();
 $action = isset($_GET['action']) ? $_GET['action'] : '';
 
 switch ($action) {
-
     case 'getUser':
-        // Vulnérabilité : IDOR + SQL Injection
         $id = $_GET['id'];
+        // Vulnérabilité : SQL Injection + IDOR
         $query = "SELECT * FROM users WHERE id=" . $id;
         $result = mysqli_query($conn, $query);
         $user = mysqli_fetch_assoc($result);
-
-        // Vulnérabilité : Exposition de données sensibles
-        echo json_encode($user);
+        echo json_encode($user); // Vulnérabilité : données sensibles exposées
         break;
 
     case 'getUsers':
-        // Vulnérabilité : Exposition de tous les utilisateurs sans auth
+        // Vulnérabilité : Exposition de tous les users sans auth
         $query = "SELECT id, username, email, password FROM users";
         $result = mysqli_query($conn, $query);
         $users = [];
@@ -34,7 +30,7 @@ switch ($action) {
         break;
 
     case 'exec':
-        // Vulnérabilité : Exécution de commande via API
+        // Vulnérabilité : Command Injection via API
         $cmd = $_GET['cmd'];
         $output = shell_exec($cmd);
         echo json_encode(['output' => $output]);
@@ -42,10 +38,12 @@ switch ($action) {
 
     default:
         echo json_encode([
+            'name' => 'VulnShop API',
+            'version' => '1.0.0',
             'endpoints' => [
-                'getUser'  => '?action=getUser&id=1',
-                'getUsers' => '?action=getUsers',
-                'exec'     => '?action=exec&cmd=whoami'
+                ['method' => 'GET', 'url' => '?action=getUser&id=1',  'desc' => 'Get user by ID (IDOR + SQLi)'],
+                ['method' => 'GET', 'url' => '?action=getUsers',       'desc' => 'Get all users (No Auth)'],
+                ['method' => 'GET', 'url' => '?action=exec&cmd=whoami','desc' => 'Execute command (RCE)'],
             ]
         ]);
 }
