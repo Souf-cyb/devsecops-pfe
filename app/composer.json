@@ -1,0 +1,10 @@
+{
+  "name": "devsecops/vulnerable-app",
+  "description": "Application vulnérable pour PFE DevSecOps",
+  "require": {
+    "symfony/http-foundation": "4.4.0",
+    "twig/twig": "1.0.0",
+    "phpmailer/phpmailer": "5.2.0",
+    "guzzlehttp/guzzle": "6.0.0"
+  }
+}
