@@ -18,7 +18,6 @@ jobs:
           pip install semgrep
           mkdir -p reports
           semgrep --config=p/owasp-top-ten ./app --json > reports/semgrep-report.json || true
-          cat reports/semgrep-report.json
 
       - name: Upload Semgrep Report
         uses: actions/upload-artifact@v4
@@ -59,7 +58,7 @@ jobs:
           docker build -t devsecops-app ./app
           echo "Build successful"
 
-dast-zap:
+  dast-zap:
     name: DAST - OWASP ZAP
     runs-on: ubuntu-latest
     needs: [build]
@@ -90,8 +89,6 @@ dast-zap:
             -r report_html.html \
             -J report_json.json \
             -I || true
-          
-          # Copier les rapports
           cp zap-work/report_html.html . || true
           cp zap-work/report_json.json . || true
 
