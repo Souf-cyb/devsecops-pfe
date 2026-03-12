@@ -91,12 +91,12 @@ jobs:
           chmod 777 zap-work
           chmod 777 .
 
-      - name: Run ZAP Scan on VulnShop
+      - name: Run ZAP Full Scan
         run: |
           docker run --network=host \
             -v $(pwd)/zap-work:/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py \
+            zap-full-scan.py \
             -t http://localhost:80 \
             -r report_html.html \
             -J report_json.json \
