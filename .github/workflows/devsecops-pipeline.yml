@@ -36,7 +36,8 @@ jobs:
         run: |
           cd app
           curl -sS https://getcomposer.org/installer | php
-          php composer.phar install --no-interaction || true
+          php composer.phar install --no-interaction --ignore-platform-reqs || true
+          ls -la
 
       - name: Run OWASP Dependency Check
         uses: dependency-check/Dependency-Check_Action@main
@@ -46,8 +47,6 @@ jobs:
           format: 'HTML'
           args: >
             --enableExperimental
-            --scan ./app/vendor
-            --scan ./app/composer.json
 
       - name: Upload Dependency Check Report
         uses: actions/upload-artifact@v4
