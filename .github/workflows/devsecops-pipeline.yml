@@ -32,12 +32,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install Composer dependencies
+        run: |
+          cd app
+          curl -sS https://getcomposer.org/installer | php
+          php composer.phar install --no-interaction || true
+
       - name: Run OWASP Dependency Check
         uses: dependency-check/Dependency-Check_Action@main
         with:
           project: 'devsecops-pfe'
-          path: '.'
+          path: './app'
           format: 'HTML'
+          args: >
+            --enableExperimental
+            --scan ./app/vendor
+            --scan ./app/composer.json
 
       - name: Upload Dependency Check Report
         uses: actions/upload-artifact@v4
@@ -53,10 +63,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker image
+      - name: Pull Juice Shop image
         run: |
-          docker build -t devsecops-app ./app
-          echo "Build successful"
+          docker pull bkimminich/juice-shop
+          echo "✅ Juice Shop pulled successfully"
 
   dast-zap:
     name: DAST - OWASP ZAP
@@ -66,31 +76,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Start application
+      - name: Start Juice Shop
         run: |
-          docker build -t devsecops-app ./app
-          docker run -d -p 80:80 --name webapp devsecops-app
-          sleep 30
-          curl -s http://localhost:80 || echo "App starting..."
+          docker run -d -p 3000:3000 --name juiceshop bkimminich/juice-shop
+          echo "Waiting for Juice Shop to start..."
+          sleep 40
+          curl -s http://localhost:3000 || echo "Still starting..."
+          sleep 20
 
       - name: Create ZAP work directory
         run: |
           mkdir -p zap-work
           chmod 777 zap-work
-
-      - name: Run ZAP Scan
-        run: |
           chmod 777 .
+
+      - name: Run ZAP Scan on Juice Shop
+        run: |
           docker run --network=host \
             -v $(pwd)/zap-work:/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
-            -t http://localhost:80 \
+            -t http://localhost:3000 \
             -r report_html.html \
             -J report_json.json \
             -I || true
-          cp zap-work/report_html.html . || true
-          cp zap-work/report_json.json . || true
 
       - name: Upload ZAP Report
         uses: actions/upload-artifact@v4
