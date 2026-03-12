@@ -19,7 +19,7 @@ jobs:
           semgrep --config=p/owasp-top-ten ./app --json > reports/semgrep-report.json || true
 
       - name: Upload Semgrep Report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: semgrep-report
           path: reports/semgrep-report.json
@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Run OWASP Dependency Check
         uses: dependency-check/Dependency-Check_Action@main
@@ -39,7 +39,7 @@ jobs:
           format: 'HTML'
 
       - name: Upload Dependency Check Report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: dependency-check-report
           path: reports/
@@ -50,7 +50,7 @@ jobs:
     needs: [sast-semgrep, sca-dependency-check]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Build Docker image
         run: |
@@ -78,7 +78,7 @@ jobs:
           rules_file_name: '.zap/rules.tsv'
 
       - name: Upload ZAP Report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: zap-report
