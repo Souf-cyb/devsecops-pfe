@@ -2,9 +2,17 @@
   "name": "devsecops/vulnerable-app",
   "description": "Application vulnérable pour PFE DevSecOps",
   "require": {
-    "symfony/http-foundation": "4.4.0",
-    "twig/twig": "1.0.0",
-    "phpmailer/phpmailer": "5.2.0",
-    "guzzlehttp/guzzle": "6.0.0"
-  }
+    "phpmailer/phpmailer": "5.2.14",
+    "guzzlehttp/guzzle": "6.2.0",
+    "symfony/http-foundation": "3.4.0",
+    "monolog/monolog": "1.10.0",
+    "swiftmailer/swiftmailer": "5.4.0"
+  },
+  "config": {
+    "audit": {
+      "abandoned": "ignore",
+      "block-insecure": false
+    }
+  },
+  "minimum-stability": "stable"
 }
