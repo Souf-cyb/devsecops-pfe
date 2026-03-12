@@ -1,0 +1,85 @@
+name: DevSecOps Pipeline
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+
+  sast-semgrep:
+    name: SAST - Semgrep
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run Semgrep
+        run: |
+          pip install semgrep
+          semgrep --config=p/owasp-top-ten ./app --json > reports/semgrep-report.json || true
+
+      - name: Upload Semgrep Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: semgrep-report
+          path: reports/semgrep-report.json
+
+  sca-dependency-check:
+    name: SCA - Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'devsecops-pfe'
+          path: '.'
+          format: 'HTML'
+
+      - name: Upload Dependency Check Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: dependency-check-report
+          path: reports/
+
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [sast-semgrep, sca-dependency-check]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t devsecops-app ./app
+          echo "Build successful"
+
+  dast-zap:
+    name: DAST - OWASP ZAP
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Start application
+        run: |
+          docker build -t devsecops-app ./app
+          docker run -d -p 80:80 --name webapp devsecops-app
+          sleep 15
+
+      - name: Run ZAP Scan
+        uses: zaproxy/action-baseline@v0.9.0
+        with:
+          target: 'http://localhost:80'
+          rules_file_name: '.zap/rules.tsv'
+
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: zap-report
+          path: report_html.html
