@@ -309,6 +309,37 @@ jobs:
           path: reports/depcheck
         continue-on-error: true
 
+      - name: Debug — Check JSON structure
+        run: |
+          echo "=== ZAP JSON structure ==="
+          cat reports/zap/report_json.json | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          print('Keys:', list(data.keys()))
+          if 'site' in data:
+              print('Site keys:', list(data['site'][0].keys()))
+              alerts = data['site'][0].get('alerts', [])
+              print('Alerts count:', len(alerts))
+              if alerts:
+                  print('First alert keys:', list(alerts[0].keys()))
+                  print('First alert riskdesc:', alerts[0].get('riskdesc','N/A'))
+          " 2>/dev/null || echo "ZAP JSON read error!"
+
+          echo "=== DepCheck JSON structure ==="
+          cat reports/depcheck/dependency-check-report.json | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          print('Keys:', list(data.keys()))
+          if 'dependencies' in data:
+              deps = data['dependencies']
+              print('Dependencies count:', len(deps))
+              vuln_deps = [d for d in deps if d.get('vulnerabilities')]
+              print('Deps with vulns:', len(vuln_deps))
+              if vuln_deps:
+                  print('First vuln keys:', list(vuln_deps[0]['vulnerabilities'][0].keys()))
+                  print('First vuln severity:', vuln_deps[0]['vulnerabilities'][0].get('severity','N/A'))
+          " 2>/dev/null || echo "DepCheck JSON read error!"
+
       - name: Generate Dashboard
         run: |
           python3 << 'EOF'
