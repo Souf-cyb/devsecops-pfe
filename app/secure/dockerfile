@@ -3,13 +3,25 @@ FROM php:8.0-apache
 # Install mysqli
 RUN docker-php-ext-install mysqli
 
-# Copy secure files
+# Enable mod_rewrite
+RUN a2enmod rewrite
+
+# Copy ALL secure files to web root
 COPY . /var/www/html/
 
-# Fix permissions
-RUN chmod -R 755 /var/www/html/
+# Rename index_secure.php to index.php for Apache
+RUN cp /var/www/html/index_secure.php /var/www/html/index.php
 
-# Enable Apache mod_rewrite
-RUN a2enmod rewrite
+# Fix permissions
+RUN chown -R www-data:www-data /var/www/html/ \
+    && chmod -R 755 /var/www/html/
+
+# Apache config — allow .htaccess and directory access
+RUN echo '<Directory /var/www/html/>\n\
+    Options Indexes FollowSymLinks\n\
+    AllowOverride All\n\
+    Require all granted\n\
+</Directory>' > /etc/apache2/conf-available/vulnshop.conf \
+    && a2enconf vulnshop
 
 EXPOSE 80
