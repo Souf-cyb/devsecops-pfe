@@ -12,19 +12,19 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Run Semgrep
+      
+      - name: Run Semgrep SAST
         run: |
-          pip install semgrep
-          mkdir -p reports
-          semgrep --config=p/owasp-top-ten ./app --json > reports/semgrep-report.json || true
-          semgrep --config=p/php ./app --json >> reports/semgrep-report.json || true
-
-      - name: Upload Semgrep Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: semgrep-report
-          path: reports/semgrep-report.json
+          semgrep scan \
+            --config p/owasp-top-ten \
+            --config p/php \
+            --json > reports/semgrep-report.json
+          
+          semgrep scan \
+            --config p/owasp-top-ten \
+            --config p/php \
+            --output reports/semgrep-report.html \
+            --html
 
   sca-dependency-check:
     name: SCA - Dependency Check
