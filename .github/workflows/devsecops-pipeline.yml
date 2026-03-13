@@ -56,17 +56,20 @@ jobs:
           path: reports/
 
   build:
-    name: Build Docker Image
+    name: Build Docker
     runs-on: ubuntu-latest
     needs: [sast-semgrep, sca-dependency-check]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build VulnShop image
+      - name: Start application with Docker Compose
         run: |
-          docker build -t vulnshop ./app
-          echo "✅ VulnShop built successfully"
+          docker compose up -d --build
+          echo "Waiting for services..."
+          sleep 40
+          docker compose ps
+          curl -s http://localhost:80 || echo "App starting..."
 
   dast-zap:
     name: DAST - OWASP ZAP

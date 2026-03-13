@@ -259,7 +259,7 @@ require_once 'config.php';
 
 <!-- FOOTER -->
 <footer>
-    <p>© 2024 <span>VulnShop</span> — Built for DevSecOps PFE demonstration</p>
+    <p>© 2026 <span>VulnShop</span> — Built for DevSecOps PFE demonstration</p>
     <p style="margin-top:10px; font-size:12px;">⚠️ This application is intentionally vulnerable for security testing purposes</p>
 </footer>
 

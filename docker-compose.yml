@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  vulnshop:
+    build: ./app
+    ports:
+      - "80:80"
+    environment:
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASS: root
+      DB_NAME: vulnshop
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - vulnnet
+
+  mysql:
+    image: mysql:5.7
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: vulnshop
+    volumes:
+      - ./app/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vulnnet
+
+networks:
+  vulnnet:
+    driver: bridge

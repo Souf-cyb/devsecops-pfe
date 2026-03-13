@@ -243,7 +243,7 @@ if (isset($_POST['ping'])) {
 </div>
 
 <footer>
-    <p>© 2024 VulnShop Admin — DevSecOps PFE</p>
+    <p>© 2026 VulnShop Admin — DevSecOps PFE</p>
 </footer>
 
 </body>

@@ -165,7 +165,7 @@ if (isset($_GET['filter'])) {
 </div>
 
 <footer>
-    <p>© 2024 VulnShop — DevSecOps PFE</p>
+    <p>© 2026 VulnShop — DevSecOps PFE</p>
 </footer>
 
 </body>

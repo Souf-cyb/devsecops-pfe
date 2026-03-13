@@ -185,7 +185,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['file'])) {
 </div>
 
 <footer>
-    <p>© 2024 VulnShop — DevSecOps PFE</p>
+    <p>© 2026 VulnShop — DevSecOps PFE</p>
 </footer>
 
 </body>

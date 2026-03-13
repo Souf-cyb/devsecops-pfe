@@ -243,7 +243,7 @@ $current_user = mysqli_fetch_assoc($result);
 </div>
 
 <footer>
-    <p>© 2024 VulnShop — DevSecOps PFE</p>
+    <p>© 2026 VulnShop — DevSecOps PFE</p>
 </footer>
 
 </body>
