@@ -1,10 +1,28 @@
 version: '3.8'
 
 services:
+
+  # ❌ Application vulnérable — port 80
   vulnshop:
     build: ./app
     ports:
       - "80:80"
+    environment:
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASS: root
+      DB_NAME: vulnshop
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - vulnnet
+
+  # ✅ Application sécurisée — port 8080
+  vulnshop-secure:
+    build: ./app/secure
+    ports:
+      - "8080:80"
     environment:
       DB_HOST: mysql
       DB_USER: root
