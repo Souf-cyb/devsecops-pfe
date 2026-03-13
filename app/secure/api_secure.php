@@ -1,6 +1,6 @@
 <?php
 session_start();
-require_once '../secure/config_secure.php';
+require_once 'config_secure.php';
 set_security_headers();
 
 header('Content-Type: application/json');

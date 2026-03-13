@@ -1,7 +1,7 @@
 <?php
 session_start();
 session_regenerate_id(true); // ✅ Prévient le session fixation
-require_once '../secure/config_secure.php';
+require_once 'config_secure.php';
 set_security_headers();
 
 $error = '';
