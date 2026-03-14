@@ -237,7 +237,7 @@ jobs:
           docker compose ps
           curl -s http://localhost:80 || echo "App still starting..."
           sleep 10
-
+          
 # ═══════════════════════════════════════════════
 #  JOB 4 — DAST ZAP FULL SCAN
 # ═══════════════════════════════════════════════
@@ -252,49 +252,25 @@ jobs:
       - name: Start VulnShop
         run: |
           docker compose up -d --build
-          echo "Waiting for services to be ready..."
+          echo "Waiting for services..."
           sleep 40
-          curl -s http://localhost:80 | head -5 || echo "App starting..."
+          curl -s http://localhost:80 | head -5 || echo "Still starting..."
           sleep 10
 
-      - name: Prepare ZAP directory
+      - name: ZAP Full Scan
+        uses: zaproxy/action-full-scan@v0.10.0
+        with:
+          target: 'http://localhost:80'
+          cmd_options: '-I'
+        continue-on-error: true
+
+      - name: Prepare ZAP reports for upload
+        if: always()
         run: |
           mkdir -p zap-work
-          chmod 777 zap-work
-          chmod 777 $(pwd)
-
-      - name: Run ZAP Full Scan
-        run: |
-          docker run --network=host \
-            -v $(pwd)/zap-work:/zap/wrk/:rw \
-            ghcr.io/zaproxy/zaproxy:stable \
-            zap-full-scan.py \
-            -t http://localhost:80 \
-            -r report_html.html \
-            -J report_json.json \
-            -I || true
-
-      - name: Check ZAP output
-        run: |
-          echo "=== ZAP work directory contents ==="
-          ls -la zap-work/ || echo "zap-work empty!"
-          echo "=== Looking for ZAP files everywhere ==="
-          find $(pwd) -name "report_html.html" 2>/dev/null || echo "HTML not found"
-          find $(pwd) -name "report_json.json" 2>/dev/null || echo "JSON not found"
-
-      - name: Move ZAP reports if needed
-        run: |
-          # ZAP parfois écrit dans le dossier courant
-          if [ -f "report_html.html" ]; then
-            mv report_html.html zap-work/
-            echo "Moved HTML to zap-work/"
-          fi
-          if [ -f "report_json.json" ]; then
-            mv report_json.json zap-work/
-            echo "Moved JSON to zap-work/"
-          fi
-          # Vérification finale
-          echo "=== Final zap-work contents ==="
+          # L'action génère les rapports dans le dossier courant
+          cp report_html.html zap-work/ 2>/dev/null && echo "HTML copied" || echo "HTML not found"
+          cp report_json.json zap-work/ 2>/dev/null && echo "JSON copied" || echo "JSON not found"
           ls -la zap-work/
 
       - name: Upload ZAP Report
