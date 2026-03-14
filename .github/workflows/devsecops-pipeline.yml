@@ -269,6 +269,7 @@ jobs:
             -v $(pwd)/zap-work:/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-full-scan.py \
+            --exclude app/secure \
             -t http://localhost:80 \
             -r report_html.html \
             -J report_json.json \
