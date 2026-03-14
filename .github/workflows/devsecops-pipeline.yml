@@ -241,6 +241,9 @@ jobs:
 # ═══════════════════════════════════════════════
 #  JOB 4 — DAST ZAP FULL SCAN
 # ═══════════════════════════════════════════════
+  # ═══════════════════════════════════════════════
+#  JOB 4 — DAST ZAP FULL SCAN
+# ═══════════════════════════════════════════════
   dast-zap:
     name: DAST - OWASP ZAP Full Scan
     runs-on: ubuntu-latest
@@ -249,32 +252,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Start VulnShop
+      - name: Start VulnShop + wait until ready
         run: |
           docker compose up -d --build
-          echo "Waiting for MySQL + Apache..."
-
-          # Attendre que l'app réponde vraiment
-          for i in {1..15}; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80)
-            echo "Attempt $i — HTTP Status: $STATUS"
+          echo "Waiting for app..."
+          sleep 30
+          for i in {1..20}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80 || echo "000")
+            echo "Attempt $i — HTTP $STATUS"
             if [ "$STATUS" = "200" ]; then
-              echo "App is ready!"
+              echo "App ready!"
               break
             fi
             sleep 10
           done
 
-      - name: Prepare ZAP directory
+      - name: Create ZAP directory + run scan
         run: |
-          mkdir -p zap-work
-          chmod 777 zap-work
-          chmod 777 $(pwd)
+          mkdir -p ${{ github.workspace }}/zap-work
+          chmod 777 ${{ github.workspace }}/zap-work
 
-      - name: Run ZAP Full Scan
-        run: |
           docker run --network=host \
-            -v $(pwd)/zap-work:/zap/wrk/:rw \
+            -v ${{ github.workspace }}/zap-work:/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-full-scan.py \
             -t http://localhost:80 \
@@ -282,23 +281,15 @@ jobs:
             -J report_json.json \
             -I || true
 
-      - name: Check and fix ZAP output
-        if: always()
-        run: |
-          echo "=== zap-work contents ==="
-          ls -la zap-work/
-          # ZAP écrit parfois dans le dossier courant
-          [ -f "report_html.html" ] && mv report_html.html zap-work/ && echo "HTML moved"
-          [ -f "report_json.json" ] && mv report_json.json zap-work/ && echo "JSON moved"
-          echo "=== Final ==="
-          ls -la zap-work/
+          echo "=== ZAP work directory ==="
+          ls -la ${{ github.workspace }}/zap-work/
 
       - name: Upload ZAP Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: zap-security-report
-          path: zap-work/
+          path: ${{ github.workspace }}/zap-work/
           if-no-files-found: warn
 # ═══════════════════════════════════════════════
 #  JOB 5 — DAST NUCLEI
