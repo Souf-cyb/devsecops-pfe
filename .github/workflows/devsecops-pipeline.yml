@@ -418,52 +418,52 @@ jobs:
               return {"total":0,"errors":0,"warnings":0,"sqli":0,"xss":0,"cmdi":0,"findings":[]}
 
           # ─── ZAP ───────────────────────────────────────────
+          # ─── ZAP ───────────────────────────────────────────
           def load_zap():
-           paths = [
-           "reports/zap/report_json.json",
-          "reports/zap/zap-security-report/report_json.json",
-          ]
-           found = glob.glob("reports/zap/**/*.json", recursive=True)
-          for f in found:
-           if f not in paths:
-            paths.append(f)
+              paths = [
+                  "reports/zap/report_json.json",
+                  "reports/zap/zap-security-report/report_json.json",
+              ]
+              found = glob.glob("reports/zap/**/*.json", recursive=True)
+              for f in found:
+                  if f not in paths:
+                      paths.append(f)
 
-          for p in paths:
-          if os.path.exists(p):
-            print(f"ZAP found: {p}")
-            with open(p) as f:
-                data = json.load(f)
+              for p in paths:
+                  if os.path.exists(p):
+                      print(f"ZAP found: {p}")
+                      with open(p) as f:
+                          data = json.load(f)
 
-            sites = data.get("site", [])
-            if isinstance(sites, dict):
-                sites = [sites]
+                      sites = data.get("site", [])
+                      if isinstance(sites, dict):
+                          sites = [sites]
 
-            high = medium = low = info = 0
-            all_alerts = []
+                      high = medium = low = info = 0
+                      all_alerts = []
 
-            for s in sites:
-                alerts = s.get("alerts", [])
-                for a in alerts:
-                    # ✅ riskcode : 3=High 2=Medium 1=Low 0=Info
-                    riskcode = int(a.get("riskcode", "0"))
-                    all_alerts.append(a)
-                    if   riskcode == 3: high   += 1
-                    elif riskcode == 2: medium += 1
-                    elif riskcode == 1: low    += 1
-                    else:               info   += 1
+                      for s in sites:
+                          alerts = s.get("alerts", [])
+                          for a in alerts:
+                              riskcode = int(a.get("riskcode", "0"))
+                              all_alerts.append(a)
+                              if   riskcode == 3: high   += 1
+                              elif riskcode == 2: medium += 1
+                              elif riskcode == 1: low    += 1
+                              else:               info   += 1
 
-            print(f"ZAP: {high} High, {medium} Medium, {low} Low, {info} Info")
-            return {
-                "high":   high,
-                "medium": medium,
-                "low":    low,
-                "info":   info,
-                "total":  high + medium + low + info,
-                "alerts": all_alerts[:5]
-            }
+                      print(f"ZAP: {high} High, {medium} Medium, {low} Low, {info} Info")
+                      return {
+                          "high":   high,
+                          "medium": medium,
+                          "low":    low,
+                          "info":   info,
+                          "total":  high + medium + low + info,
+                          "alerts": all_alerts[:5]
+                      }
 
-          print("ZAP: file not found!")
-          return {"high":0,"medium":0,"low":0,"info":0,"total":0,"alerts":[]}
+              print("ZAP: file not found!")
+              return {"high":0,"medium":0,"low":0,"info":0,"total":0,"alerts":[]}
 
           # ─── DEPENDENCY CHECK ──────────────────────────────
           def load_depcheck():
@@ -509,73 +509,68 @@ jobs:
               return {"critical":0,"high":0,"medium":0,"low":0,"total":0,"vulns":[]}
 
           # ─── NUCLEI ────────────────────────────────────────
-          # ─── NUCLEI ────────────────────────────────────────
           def load_nuclei():
-          paths = [
-          "reports/nuclei/nuclei-report.json",
-          "reports/nuclei/reports/nuclei-report.json",
-          ]
-          found = glob.glob("reports/nuclei/**/*.json", recursive=True)
-          for f in found:
-          if f not in paths:
-            paths.append(f)
+              paths = [
+                  "reports/nuclei/nuclei-report.json",
+                  "reports/nuclei/reports/nuclei-report.json",
+              ]
+              found = glob.glob("reports/nuclei/**/*.json", recursive=True)
+              for f in found:
+                  if f not in paths:
+                      paths.append(f)
 
-          for p in paths:
-          if os.path.exists(p):
-            print(f"Nuclei found: {p}")
-            findings = []
-            with open(p) as f:
-                content = f.read().strip()
-                if not content:
-                    print("Nuclei: empty file")
-                    break
+              for p in paths:
+                  if os.path.exists(p):
+                      print(f"Nuclei found: {p}")
+                      findings = []
+                      with open(p) as f:
+                          content = f.read().strip()
+                      if not content:
+                          print("Nuclei: empty file")
+                          continue
 
-                # ✅ Essaie d'abord comme tableau JSON
-                try:
-                    data = json.loads(content)
-                    if isinstance(data, list):
-                        findings = data
-                    elif isinstance(data, dict):
-                        findings = [data]
-                except:
-                    # ✅ Sinon essaie ligne par ligne (JSONL)
-                    for line in content.splitlines():
-                        line = line.strip()
-                        if line:
-                            try:
-                                obj = json.loads(line)
-                                if isinstance(obj, list):
-                                    findings.extend(obj)
-                                elif isinstance(obj, dict):
-                                    findings.append(obj)
-                            except:
-                                pass
+                      try:
+                          data = json.loads(content)
+                          if isinstance(data, list):
+                              findings = data
+                          elif isinstance(data, dict):
+                              findings = [data]
+                      except:
+                          for line in content.splitlines():
+                              line = line.strip()
+                              if line:
+                                  try:
+                                      obj = json.loads(line)
+                                      if isinstance(obj, list):
+                                          findings.extend(obj)
+                                      elif isinstance(obj, dict):
+                                          findings.append(obj)
+                                  except:
+                                      pass
 
-            critical = high = medium = low = info = 0
-            for r in findings:
-                # ✅ Vérifie que r est bien un dict
-                if not isinstance(r, dict):
-                    continue
-                sev = r.get("info", {}).get("severity", "").lower()
-                if   sev == "critical": critical += 1
-                elif sev == "high":     high     += 1
-                elif sev == "medium":   medium   += 1
-                elif sev == "low":      low      += 1
-                else:                   info     += 1
+                      critical = high = medium = low = info = 0
+                      for r in findings:
+                          if not isinstance(r, dict):
+                              continue
+                          sev = r.get("info", {}).get("severity", "").lower()
+                          if   sev == "critical": critical += 1
+                          elif sev == "high":     high     += 1
+                          elif sev == "medium":   medium   += 1
+                          elif sev == "low":      low      += 1
+                          else:                   info     += 1
 
-            print(f"Nuclei: {critical} Critical, {high} High, {medium} Medium, {low} Low")
-            return {
-                "critical": critical, "high": high,
-                "medium":   medium,   "low":  low,
-                "info":     info,
-                "total":    len(findings),
-                "findings": findings[:5]
-            }
+                      print(f"Nuclei: {critical} Critical, {high} High, {medium} Medium, {low} Low")
+                      return {
+                          "critical": critical, "high": high,
+                          "medium":   medium,   "low":  low,
+                          "info":     info,
+                          "total":    len(findings),
+                          "findings": findings[:5]
+                      }
 
-            print("Nuclei: file not found!")
-            return {"critical":0,"high":0,"medium":0,"low":0,"info":0,"total":0,"findings":[]}
-
-
+              print("Nuclei: file not found!")
+              return {"critical":0,"high":0,"medium":0,"low":0,"info":0,"total":0,"findings":[]}
+              
           # ─── LOAD ALL ──────────────────────────────────────
           semgrep  = load_semgrep()
           zap      = load_zap()
