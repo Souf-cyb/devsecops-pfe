@@ -242,7 +242,7 @@ jobs:
 #  JOB 4 — DAST ZAP FULL SCAN
 # ═══════════════════════════════════════════════
   dast-zap:
-    name: DAST - OWASP ZAP
+    name: DAST - OWASP ZAP Full Scan
     runs-on: ubuntu-latest
     needs: [build]
     steps:
@@ -252,16 +252,16 @@ jobs:
       - name: Start VulnShop
         run: |
           docker compose up -d --build
-          echo "Waiting for VulnShop to start..."
+          echo "Waiting for services to be ready..."
           sleep 40
-          curl -s http://localhost:80 || echo "Still starting..."
+          curl -s http://localhost:80 | head -5 || echo "App starting..."
           sleep 10
 
-      - name: Create ZAP work directory
+      - name: Prepare ZAP directory
         run: |
           mkdir -p zap-work
           chmod 777 zap-work
-          chmod 777 .
+          chmod 777 $(pwd)
 
       - name: Run ZAP Full Scan
         run: |
@@ -269,21 +269,41 @@ jobs:
             -v $(pwd)/zap-work:/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-full-scan.py \
-            --exclude app/secure \
             -t http://localhost:80 \
             -r report_html.html \
             -J report_json.json \
             -I || true
+
+      - name: Check ZAP output
+        run: |
+          echo "=== ZAP work directory contents ==="
+          ls -la zap-work/ || echo "zap-work empty!"
+          echo "=== Looking for ZAP files everywhere ==="
+          find $(pwd) -name "report_html.html" 2>/dev/null || echo "HTML not found"
+          find $(pwd) -name "report_json.json" 2>/dev/null || echo "JSON not found"
+
+      - name: Move ZAP reports if needed
+        run: |
+          # ZAP parfois écrit dans le dossier courant
+          if [ -f "report_html.html" ]; then
+            mv report_html.html zap-work/
+            echo "Moved HTML to zap-work/"
+          fi
+          if [ -f "report_json.json" ]; then
+            mv report_json.json zap-work/
+            echo "Moved JSON to zap-work/"
+          fi
+          # Vérification finale
+          echo "=== Final zap-work contents ==="
+          ls -la zap-work/
 
       - name: Upload ZAP Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: zap-security-report
-          path: |
-            zap-work/report_html.html
-            zap-work/report_json.json
-
+          path: zap-work/
+          if-no-files-found: warn
 # ═══════════════════════════════════════════════
 #  JOB 5 — DAST NUCLEI
 # ═══════════════════════════════════════════════
@@ -323,13 +343,14 @@ jobs:
             reports/nuclei-report.txt
             reports/nuclei-report.json
 
+
 # ═══════════════════════════════════════════════
-#  JOB 6 — GENERATE DASHBOARD
+#  JOB 6 — GENERATE SECURITY DASHBOARD
 # ═══════════════════════════════════════════════
   generate-dashboard:
     name: Generate Security Dashboard
     runs-on: ubuntu-latest
-    needs: [sast-semgrep, sca-dependency-check, dast-zap]
+    needs: [sast-semgrep, sca-dependency-check, dast-zap, dast-nuclei]
     if: always()
     steps:
       - name: Checkout code
@@ -355,7 +376,7 @@ jobs:
           name: dependency-check-report
           path: reports/depcheck
         continue-on-error: true
-      
+
       - name: Download Nuclei Report
         uses: actions/download-artifact@v4
         with:
@@ -363,226 +384,236 @@ jobs:
           path: reports/nuclei
         continue-on-error: true
 
-      - name: Debug — List all files
+      - name: Debug — list all downloaded files
         run: |
-          echo "=== Semgrep ==="
-          find reports/semgrep/ -type f 2>/dev/null || echo "empty!"
-          echo "=== ZAP ==="
-          find reports/zap/ -type f 2>/dev/null || echo "empty!"
-          echo "=== DepCheck ==="
-          find reports/depcheck/ -type f 2>/dev/null || echo "empty!"
+          echo "=== reports/semgrep ==="
+          find reports/semgrep -type f 2>/dev/null || echo "empty"
+          echo "=== reports/zap ==="
+          find reports/zap -type f 2>/dev/null || echo "empty"
+          echo "=== reports/depcheck ==="
+          find reports/depcheck -type f 2>/dev/null || echo "empty"
+          echo "=== reports/nuclei ==="
+          find reports/nuclei -type f 2>/dev/null || echo "empty"
 
       - name: Generate Dashboard
         run: |
           python3 << 'EOF'
-          import json
-          import os
+          import json, os, glob
           from datetime import datetime
 
-          semgrep_results = []
-          zap_high = zap_medium = zap_low = zap_info = zap_total = 0
-          dep_critical = dep_high = dep_medium = dep_total = 0
-          zap_alerts = []
-
-          # ─── Lire Semgrep ────────────────────────────────
-          semgrep_path = "reports/semgrep/semgrep-report.json"
-          if os.path.exists(semgrep_path):
-              with open(semgrep_path) as f:
-                  data = json.load(f)
-              semgrep_results = data.get("results", [])
-              print(f"Semgrep: {len(semgrep_results)} findings")
-          else:
+          # ─── SEMGREP ───────────────────────────────────────
+          def load_semgrep():
+              paths = [
+                  "reports/semgrep/semgrep-report.json",
+                  "reports/semgrep/reports/semgrep-report.json",
+              ]
+              for p in paths:
+                  if os.path.exists(p):
+                      print(f"Semgrep found: {p}")
+                      with open(p) as f:
+                          data = json.load(f)
+                      results = data.get("results", [])
+                      errors   = [r for r in results if r["extra"]["severity"] == "ERROR"]
+                      warnings = [r for r in results if r["extra"]["severity"] == "WARNING"]
+                      sqli = [r for r in results if "SQL"     in r["check_id"]]
+                      xss  = [r for r in results if "echoed"  in r["check_id"] or "xss" in r["check_id"].lower()]
+                      cmdi = [r for r in results if "exec"    in r["check_id"]]
+                      return {
+                          "total":    len(results),
+                          "errors":   len(errors),
+                          "warnings": len(warnings),
+                          "sqli":     len(sqli),
+                          "xss":      len(xss),
+                          "cmdi":     len(cmdi),
+                          "findings": results[:5]
+                      }
               print("Semgrep: file not found!")
+              return {"total":0,"errors":0,"warnings":0,"sqli":0,"xss":0,"cmdi":0,"findings":[]}
 
-          semgrep_errors   = [r for r in semgrep_results if r["extra"]["severity"] == "ERROR"]
-          semgrep_warnings = [r for r in semgrep_results if r["extra"]["severity"] == "WARNING"]
+          # ─── ZAP ───────────────────────────────────────────
+          def load_zap():
+              paths = [
+                  "reports/zap/report_json.json",
+                  "reports/zap/zap-security-report/report_json.json",
+              ]
+              # Cherche aussi avec glob
+              found = glob.glob("reports/zap/**/*.json", recursive=True)
+              for f in found:
+                  if f not in paths:
+                      paths.append(f)
 
-          # ─── Lire ZAP ────────────────────────────────────
-          zap_path = "reports/zap/report_json.json"
-          if os.path.exists(zap_path):
-              with open(zap_path) as f:
-                  zap_data = json.load(f)
-              sites = zap_data.get("site", [])
-              if isinstance(sites, dict):
-                  sites = [sites]
-              for site in sites:
-                  zap_alerts.extend(site.get("alerts", []))
-              if not zap_alerts:
-                  zap_alerts = zap_data.get("alerts", [])
-              for alert in zap_alerts:
-                  risk = alert.get("riskdesc", alert.get("risk", ""))
-                  if "High"   in risk: zap_high   += 1
-                  elif "Medium" in risk: zap_medium += 1
-                  elif "Low"    in risk: zap_low    += 1
-                  else:                  zap_info   += 1
-              zap_total = zap_high + zap_medium + zap_low + zap_info
-              print(f"ZAP: {zap_total} alerts")
-          else:
+              for p in paths:
+                  if os.path.exists(p):
+                      print(f"ZAP found: {p}")
+                      with open(p) as f:
+                          data = json.load(f)
+                      sites = data.get("site", [])
+                      if isinstance(sites, dict):
+                          sites = [sites]
+                      high = medium = low = info = 0
+                      all_alerts = []
+                      for s in sites:
+                          alerts = s.get("alerts", [])
+                          for a in alerts:
+                              r = a.get("riskdesc", "")
+                              all_alerts.append(a)
+                              if   "High"   in r: high   += 1
+                              elif "Medium" in r: medium += 1
+                              elif "Low"    in r: low    += 1
+                              else:               info   += 1
+                      print(f"ZAP: {high} High, {medium} Medium, {low} Low, {info} Info")
+                      return {
+                          "high": high, "medium": medium,
+                          "low":  low,  "info":   info,
+                          "total": high + medium + low + info,
+                          "alerts": all_alerts[:5]
+                      }
               print("ZAP: file not found!")
+              return {"high":0,"medium":0,"low":0,"info":0,"total":0,"alerts":[]}
 
-          # ─── Lire Dependency Check ────────────────────────
-          dep_paths = [
-              "reports/depcheck/dependency-check-report.json",
-              "reports/depcheck/reports/dependency-check-report.json",
-          ]
-          dep_data = None
-          for p in dep_paths:
-              if os.path.exists(p):
-                  with open(p) as f:
-                      dep_data = json.load(f)
-                  print(f"DepCheck: found at {p}")
-                  break
-          if dep_data:
-              for dep in dep_data.get("dependencies", []):
-                  for vuln in dep.get("vulnerabilities", []):
-                      dep_total += 1
-                      sev = vuln.get("severity", "").upper()
-                      if sev == "CRITICAL": dep_critical += 1
-                      elif sev == "HIGH":   dep_high     += 1
-                      elif sev == "MEDIUM": dep_medium   += 1
-              print(f"DepCheck: {dep_total} CVEs")
-          else:
+          # ─── DEPENDENCY CHECK ──────────────────────────────
+          def load_depcheck():
+              paths = [
+                  "reports/depcheck/dependency-check-report.json",
+                  "reports/depcheck/reports/dependency-check-report.json",
+              ]
+              found = glob.glob("reports/depcheck/**/*.json", recursive=True)
+              for f in found:
+                  if f not in paths:
+                      paths.append(f)
+
+              for p in paths:
+                  if os.path.exists(p):
+                      print(f"DepCheck found: {p}")
+                      with open(p) as f:
+                          data = json.load(f)
+                      deps  = data.get("dependencies", [])
+                      critical = high = medium = low = 0
+                      vuln_list = []
+                      for d in deps:
+                          vulns = d.get("vulnerabilities", [])
+                          for v in vulns:
+                              sev = v.get("severity","").upper()
+                              if   sev == "CRITICAL": critical += 1
+                              elif sev == "HIGH":     high     += 1
+                              elif sev == "MEDIUM":   medium   += 1
+                              else:                   low      += 1
+                              vuln_list.append({
+                                  "name":     d.get("fileName","?"),
+                                  "cve":      v.get("name","?"),
+                                  "severity": sev,
+                                  "desc":     v.get("description","")[:120]
+                              })
+                      print(f"DepCheck: {critical} Critical, {high} High, {medium} Medium")
+                      return {
+                          "critical": critical, "high": high,
+                          "medium":   medium,   "low":  low,
+                          "total":    critical + high + medium + low,
+                          "vulns":    vuln_list[:5]
+                      }
               print("DepCheck: file not found!")
+              return {"critical":0,"high":0,"medium":0,"low":0,"total":0,"vulns":[]}
 
-          # ─── Totaux ───────────────────────────────────────
-          total_high   = len(semgrep_errors)  + zap_high   + dep_critical
-          total_medium = len(semgrep_warnings) + zap_medium + dep_high
-          total_low    = zap_low
-          total_info   = zap_info
-          grand_total  = len(semgrep_results) + zap_total + dep_total
-          now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+          # ─── NUCLEI ────────────────────────────────────────
+          def load_nuclei():
+              paths = [
+                  "reports/nuclei/nuclei-report.json",
+                  "reports/nuclei/reports/nuclei-report.json",
+              ]
+              found = glob.glob("reports/nuclei/**/*.json", recursive=True)
+              for f in found:
+                  if f not in paths:
+                      paths.append(f)
 
-          # ─── Semgrep summary table rows ───────────────────
-          vuln_rows = ""
-          seen = set()
-          for r in semgrep_results:
-              check_id = r["check_id"].split(".")[-1].replace("-", " ").title()
-              if check_id in seen:
-                  continue
-              seen.add(check_id)
-              path     = r["path"]
-              severity = r["extra"]["severity"]
-              cwes     = r["extra"].get("metadata", {}).get("cwe", [])
-              cwe_text = cwes[0].split(":")[0] if cwes else "N/A"
-              color    = "#e94560" if severity == "ERROR" else "#BA7517"
-              vuln_rows += f"""
-              <tr>
-                <td>{check_id}</td>
-                <td style="font-size:12px;color:#666">{path}</td>
-                <td><span style="background:#e8f4fd;color:#2980b9;padding:2px 8px;border-radius:5px;font-size:11px">{cwe_text}</span></td>
-                <td style="color:{color};font-weight:500;font-size:12px">{severity}</td>
-              </tr>"""
+              for p in paths:
+                  if os.path.exists(p):
+                      print(f"Nuclei found: {p}")
+                      findings = []
+                      with open(p) as f:
+                          for line in f:
+                              line = line.strip()
+                              if line:
+                                  try:
+                                      findings.append(json.loads(line))
+                                  except:
+                                      pass
+                      critical = high = medium = low = info = 0
+                      for r in findings:
+                          sev = r.get("info",{}).get("severity","").lower()
+                          if   sev == "critical": critical += 1
+                          elif sev == "high":     high     += 1
+                          elif sev == "medium":   medium   += 1
+                          elif sev == "low":      low      += 1
+                          else:                   info     += 1
+                      print(f"Nuclei: {critical} Critical, {high} High, {medium} Medium, {low} Low")
+                      return {
+                          "critical": critical, "high": high,
+                          "medium":   medium,   "low":  low,
+                          "info":     info,
+                          "total":    len(findings),
+                          "findings": findings[:5]
+                      }
+              print("Nuclei: file not found!")
+              return {"critical":0,"high":0,"medium":0,"low":0,"info":0,"total":0,"findings":[]}
 
-          # ─── ZAP table rows ───────────────────────────────
-          zap_rows = ""
-          for alert in zap_alerts[:10]:
-              name = alert.get("name", "N/A")
-              risk = alert.get("riskdesc", "N/A")
-              if "High"   in risk:
-                  badge = '<span style="background:#ffe0e0;color:#a32d2d;padding:2px 8px;border-radius:20px;font-size:11px">High</span>'
-              elif "Medium" in risk:
-                  badge = '<span style="background:#faeeda;color:#854f0b;padding:2px 8px;border-radius:20px;font-size:11px">Medium</span>'
-              elif "Low" in risk:
-                  badge = '<span style="background:#eaf3de;color:#3b6d11;padding:2px 8px;border-radius:20px;font-size:11px">Low</span>'
-              else:
-                  badge = '<span style="background:#f0f0f0;color:#888;padding:2px 8px;border-radius:20px;font-size:11px">Info</span>'
-              zap_rows += f"<tr><td>{name}</td><td>{badge}</td></tr>"
+          # ─── LOAD ALL ──────────────────────────────────────
+          semgrep  = load_semgrep()
+          zap      = load_zap()
+          depcheck = load_depcheck()
+          nuclei   = load_nuclei()
 
-          # ─── DepCheck table rows ──────────────────────────
-          dep_rows = ""
-          if dep_data:
-              count = 0
-              for dep in dep_data.get("dependencies", []):
-                  vulns = dep.get("vulnerabilities", [])
-                  if not vulns or count >= 8:
-                      continue
-                  dep_name = dep.get("fileName", "N/A")
-                  for vuln in vulns[:2]:
-                      cve  = vuln.get("name", "N/A")
-                      sev  = vuln.get("severity", "N/A").upper()
-                      cvss = vuln.get("cvssv3", {}).get("baseScore", vuln.get("cvssv2", {}).get("score", "N/A"))
-                      if sev == "CRITICAL":
-                          color = "#a32d2d"; bg = "#ffe0e0"
-                      elif sev == "HIGH":
-                          color = "#854f0b"; bg = "#faeeda"
-                      else:
-                          color = "#3b6d11"; bg = "#eaf3de"
-                      dep_rows += f"""
-                      <tr>
-                        <td style="font-size:12px">{dep_name}</td>
-                        <td style="font-size:12px;color:#2980b9">{cve}</td>
-                        <td><span style="background:{bg};color:{color};padding:2px 8px;border-radius:20px;font-size:11px">{sev}</span></td>
-                        <td style="font-size:12px">{cvss}</td>
-                      </tr>"""
-                      count += 1
+          total = semgrep["total"] + zap["total"] + depcheck["total"] + nuclei["total"]
+          now   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-          # ─── OWASP bars ───────────────────────────────────
-          owasp_counts = {}
-          for r in semgrep_results:
-              for o in r["extra"].get("metadata", {}).get("owasp", []):
-                  key = o.split(" - ")[0].strip()
-                  owasp_counts[key] = owasp_counts.get(key, 0) + 1
-          max_count  = max(owasp_counts.values()) if owasp_counts else 1
-          owasp_bars = ""
-          for owasp, count in sorted(owasp_counts.items()):
-              pct = int(count / max_count * 100)
-              owasp_bars += f"""
-              <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-                <span style="font-size:11px;font-weight:500;background:#f0f0f0;color:#555;
-                       padding:2px 8px;border-radius:4px;width:75px;text-align:center">{owasp}</span>
-                <div style="flex:1;background:#f0f0f0;border-radius:4px;height:8px;overflow:hidden">
-                  <div style="width:{pct}%;height:100%;border-radius:4px;background:#1a1a2e"></div>
-                </div>
-                <span style="font-size:12px;color:#888;width:20px;text-align:right">{count}</span>
-              </div>"""
-
-          # ─── Severity bars ────────────────────────────────
-          def sev_bar(count, total, color):
-              pct = int(count / total * 100) if total > 0 else 0
-              return f"""
-              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
-                <span style="color:{color};font-weight:500">{count}</span>
-              </div>
-              <div style="background:#f0f0f0;border-radius:4px;height:10px;overflow:hidden;margin-bottom:12px">
-                <div style="width:{pct}%;height:100%;background:{color};border-radius:4px"></div>
-              </div>"""
-
-          # ─── HTML ─────────────────────────────────────────
+          # ─── HTML DASHBOARD ────────────────────────────────
           html = f"""<!DOCTYPE html>
           <html lang="fr">
           <head>
             <meta charset="UTF-8">
-            <title>VulnShop Security Dashboard</title>
+            <title>VulnShop — Security Dashboard</title>
             <style>
               * {{ margin:0; padding:0; box-sizing:border-box; }}
               body {{ font-family:Segoe UI,sans-serif; background:#f5f5f5; padding:20px; color:#1a1a2e; }}
               .header {{ background:linear-gradient(135deg,#1a1a2e,#16213e); color:white; padding:25px 30px; border-radius:12px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; }}
               .header h1 {{ font-size:22px; font-weight:500; }}
               .header p {{ font-size:13px; opacity:0.6; margin-top:4px; }}
-              .badge {{ background:#e94560; color:white; font-size:11px; padding:4px 12px; border-radius:20px; white-space:nowrap; }}
-              .metrics {{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }}
-              .metric {{ background:white; border-radius:10px; padding:18px; text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.06); }}
-              .metric .num {{ font-size:36px; font-weight:500; }}
-              .metric .lbl {{ font-size:12px; color:#888; margin-top:4px; }}
-              .tool-grid {{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:20px; }}
-              .tool-card {{ background:white; border-radius:10px; padding:20px; box-shadow:0 2px 8px rgba(0,0,0,0.06); border-top:4px solid #e94560; }}
-              .tool-card.zap {{ border-top-color:#1a1a2e; }}
-              .tool-card.dep {{ border-top-color:#BA7517; }}
-              .tool-card h4 {{ font-size:12px; color:#888; margin-bottom:8px; }}
-              .tool-card .big {{ font-size:32px; font-weight:500; color:#1a1a2e; }}
-              .tool-card .sub {{ font-size:12px; color:#888; margin-top:4px; }}
-              .tool-card .ok {{ font-size:11px; color:#27ae60; margin-top:8px; }}
-              .grid2 {{ display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-bottom:16px; }}
-              .card {{ background:white; border-radius:10px; padding:20px; box-shadow:0 2px 8px rgba(0,0,0,0.06); }}
-              .card h3 {{ font-size:14px; font-weight:500; margin-bottom:15px; padding-bottom:10px; border-bottom:2px solid #e94560; }}
-              table {{ width:100%; border-collapse:collapse; font-size:13px; }}
-              th {{ background:#1a1a2e; color:white; padding:8px 12px; text-align:left; font-size:12px; font-weight:400; }}
-              td {{ padding:8px 12px; border-bottom:1px solid #f0f0f0; }}
-              tr:last-child td {{ border-bottom:none; }}
-              tr:hover td {{ background:#f8f9fa; }}
-              .full-card {{ background:white; border-radius:10px; padding:20px; box-shadow:0 2px 8px rgba(0,0,0,0.06); margin-bottom:16px; }}
-              .full-card h3 {{ font-size:14px; font-weight:500; margin-bottom:15px; padding-bottom:10px; border-bottom:2px solid #e94560; }}
-              footer {{ text-align:center; color:#aaa; font-size:12px; margin-top:20px; padding:20px; background:#1a1a2e; border-radius:10px; }}
+              .badge {{ background:#e94560; color:white; font-size:11px; padding:4px 12px; border-radius:20px; }}
+              .total-card {{ background:linear-gradient(135deg,#e94560,#c0392b); color:white; border-radius:12px; padding:25px 30px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; }}
+              .total-card h2 {{ font-size:48px; font-weight:500; }}
+              .total-card p {{ font-size:14px; opacity:0.8; margin-top:5px; }}
+              .grid4 {{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }}
+              .tool-card {{ background:white; border-radius:12px; padding:20px; box-shadow:0 2px 8px rgba(0,0,0,0.06); border-top:4px solid #ccc; }}
+              .tool-card.semgrep {{ border-top-color:#7f77dd; }}
+              .tool-card.zap     {{ border-top-color:#e94560; }}
+              .tool-card.depcheck{{ border-top-color:#f39c12; }}
+              .tool-card.nuclei  {{ border-top-color:#27ae60; }}
+              .tool-card h3 {{ font-size:13px; color:#888; margin-bottom:12px; font-weight:400; }}
+              .tool-card .num {{ font-size:36px; font-weight:500; margin-bottom:4px; }}
+              .tool-card .sub {{ font-size:12px; color:#888; }}
+              .grid2 {{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }}
+              .card {{ background:white; border-radius:12px; padding:20px; box-shadow:0 2px 8px rgba(0,0,0,0.06); }}
+              .card h3 {{ font-size:14px; font-weight:500; margin-bottom:15px; padding-bottom:10px; border-bottom:2px solid #1a1a2e; }}
+              .sev-row {{ display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #f5f5f5; font-size:13px; }}
+              .sev-row:last-child {{ border:none; }}
+              .dot {{ width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:8px; }}
+              .dot-critical {{ background:#8e0000; }}
+              .dot-high    {{ background:#e94560; }}
+              .dot-medium  {{ background:#f39c12; }}
+              .dot-low     {{ background:#27ae60; }}
+              .dot-info    {{ background:#3498db; }}
+              table {{ width:100%; border-collapse:collapse; font-size:12px; }}
+              th {{ background:#1a1a2e; color:white; padding:8px 12px; text-align:left; font-weight:400; font-size:11px; }}
+              td {{ padding:8px 12px; border-bottom:1px solid #f5f5f5; }}
+              tr:hover td {{ background:#fafafa; }}
+              .sev-badge {{ font-size:10px; padding:2px 8px; border-radius:20px; }}
+              .CRITICAL {{ background:#ffe0e0; color:#8e0000; }}
+              .HIGH     {{ background:#ffe0e0; color:#c0392b; }}
+              .MEDIUM   {{ background:#fff3cd; color:#856404; }}
+              .LOW      {{ background:#d4edda; color:#155724; }}
+              .WARNING  {{ background:#fff3cd; color:#856404; }}
+              .ERROR    {{ background:#ffe0e0; color:#c0392b; }}
+              .no-data  {{ text-align:center; color:#aaa; padding:20px; font-size:13px; }}
+              footer {{ text-align:center; color:#aaa; font-size:12px; margin-top:20px; padding:20px; background:#1a1a2e; border-radius:12px; }}
               footer span {{ color:#e94560; }}
             </style>
           </head>
@@ -591,86 +622,124 @@ jobs:
           <div class="header">
             <div>
               <h1>VulnShop — Security Dashboard</h1>
-              <p>DevSecOps PFE — Pipeline Results — {now}</p>
+              <p>Generated on {now} — DevSecOps PFE</p>
             </div>
-            <span class="badge">SAST + DAST + SCA</span>
+            <span class="badge">4 tools</span>
           </div>
 
-          <div class="metrics">
-            <div class="metric"><div class="num" style="color:#e94560">{grand_total}</div><div class="lbl">Total Findings</div></div>
-            <div class="metric"><div class="num" style="color:#e94560">{total_high}</div><div class="lbl">High Severity</div></div>
-            <div class="metric"><div class="num" style="color:#BA7517">{total_medium}</div><div class="lbl">Medium Severity</div></div>
-            <div class="metric"><div class="num" style="color:#639922">{total_low + total_info}</div><div class="lbl">Low / Info</div></div>
-          </div>
-
-          <div class="tool-grid">
-            <div class="tool-card">
-              <h4>SAST — Semgrep</h4>
-              <div class="big">{len(semgrep_results)}</div>
-              <div class="sub">SQLi · XSS · Command Injection</div>
-              <div class="ok">Completed in ~2s</div>
+          <div class="total-card">
+            <div>
+              <h2>{total}</h2>
+              <p>Total findings across all tools</p>
             </div>
-            <div class="tool-card zap">
-              <h4>DAST — OWASP ZAP</h4>
-              <div class="big">{zap_total if zap_total > 0 else "70+"}</div>
-              <div class="sub">High: {zap_high} · Medium: {zap_medium} · Low: {zap_low}</div>
-              <div class="ok">Full Scan Completed</div>
-            </div>
-            <div class="tool-card dep">
-              <h4>SCA — Dependency Check</h4>
-              <div class="big">{dep_total if dep_total > 0 else "10+"}</div>
-              <div class="sub">Critical: {dep_critical} · High: {dep_high}</div>
-              <div class="ok">Completed</div>
+            <div style="text-align:right;font-size:13px;opacity:0.85">
+              <div>Semgrep  : {semgrep['total']} findings</div>
+              <div>ZAP      : {zap['total']} alerts</div>
+              <div>DepCheck : {depcheck['total']} CVEs</div>
+              <div>Nuclei   : {nuclei['total']} findings</div>
             </div>
           </div>
 
-          <div class="grid2">
-            <div class="card">
-              <h3>SAST — Semgrep Findings</h3>
-              <table>
-                <tr><th>Vulnerability</th><th>File</th><th>CWE</th><th>Severity</th></tr>
-                {vuln_rows if vuln_rows else '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px">No data available</td></tr>'}
-              </table>
-            </div>
-            <div class="card">
-              <h3>DAST — ZAP Top Alerts</h3>
-              <table>
-                <tr><th>Alert Name</th><th>Risk</th></tr>
-                {zap_rows if zap_rows else '<tr><td colspan="2" style="text-align:center;color:#888;padding:20px">No data available</td></tr>'}
-              </table>
-            </div>
-          </div>
+          <div class="grid4">
 
-          <div class="full-card">
-            <h3>SCA — Dependency Check CVEs</h3>
-            <table>
-              <tr><th>Dependency</th><th>CVE</th><th>Severity</th><th>CVSS Score</th></tr>
-              {dep_rows if dep_rows else '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px">No data available</td></tr>'}
-            </table>
-          </div>
-
-          <div class="grid2">
-            <div class="card">
-              <h3>OWASP Top 10 Coverage</h3>
-              {owasp_bars if owasp_bars else '<p style="color:#888;font-size:13px;padding:10px 0">No data available</p>'}
-            </div>
-            <div class="card">
-              <h3>Severity Distribution</h3>
-              <div style="margin-top:8px">
-                <p style="font-size:13px;color:#e94560;margin-bottom:4px">High — {total_high}</p>
-                {sev_bar(total_high, grand_total, "#e94560")}
-                <p style="font-size:13px;color:#BA7517;margin-bottom:4px">Medium — {total_medium}</p>
-                {sev_bar(total_medium, grand_total, "#BA7517")}
-                <p style="font-size:13px;color:#639922;margin-bottom:4px">Low — {total_low}</p>
-                {sev_bar(total_low, grand_total, "#639922")}
-                <p style="font-size:13px;color:#888;margin-bottom:4px">Informational — {total_info}</p>
-                {sev_bar(total_info, grand_total, "#888")}
+            <div class="tool-card semgrep">
+              <h3>SAST — Semgrep</h3>
+              <div class="num" style="color:#7f77dd">{semgrep['total']}</div>
+              <div class="sub">findings</div>
+              <div style="margin-top:12px;font-size:12px">
+                <div class="sev-row"><span><span class="dot dot-high"></span>High (ERROR)</span><b>{semgrep['errors']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-medium"></span>Medium (WARN)</span><b>{semgrep['warnings']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-high"></span>SQL Injection</span><b>{semgrep['sqli']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-medium"></span>XSS</span><b>{semgrep['xss']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-high"></span>Command Inj.</span><b>{semgrep['cmdi']}</b></div>
               </div>
             </div>
+
+            <div class="tool-card zap">
+              <h3>DAST — OWASP ZAP</h3>
+              <div class="num" style="color:#e94560">{zap['total']}</div>
+              <div class="sub">alerts</div>
+              <div style="margin-top:12px;font-size:12px">
+                <div class="sev-row"><span><span class="dot dot-high"></span>High</span><b>{zap['high']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-medium"></span>Medium</span><b>{zap['medium']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-low"></span>Low</span><b>{zap['low']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-info"></span>Info</span><b>{zap['info']}</b></div>
+              </div>
+            </div>
+
+            <div class="tool-card depcheck">
+              <h3>SCA — Dependency Check</h3>
+              <div class="num" style="color:#f39c12">{depcheck['total']}</div>
+              <div class="sub">CVEs</div>
+              <div style="margin-top:12px;font-size:12px">
+                <div class="sev-row"><span><span class="dot dot-critical"></span>Critical</span><b>{depcheck['critical']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-high"></span>High</span><b>{depcheck['high']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-medium"></span>Medium</span><b>{depcheck['medium']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-low"></span>Low</span><b>{depcheck['low']}</b></div>
+              </div>
+            </div>
+
+            <div class="tool-card nuclei">
+              <h3>DAST — Nuclei</h3>
+              <div class="num" style="color:#27ae60">{nuclei['total']}</div>
+              <div class="sub">findings</div>
+              <div style="margin-top:12px;font-size:12px">
+                <div class="sev-row"><span><span class="dot dot-critical"></span>Critical</span><b>{nuclei['critical']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-high"></span>High</span><b>{nuclei['high']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-medium"></span>Medium</span><b>{nuclei['medium']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-low"></span>Low</span><b>{nuclei['low']}</b></div>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="grid2">
+
+            <div class="card">
+              <h3>Semgrep — Top findings</h3>
+              {"".join([f'''
+              <div class="sev-row">
+                <span style="font-family:monospace;font-size:11px">{r["path"].replace("app/","")}:{r["start"]["line"]}</span>
+                <span class="{r["extra"]["severity"]} sev-badge">{r["extra"]["severity"]}</span>
+              </div>''' for r in semgrep["findings"]]) if semgrep["findings"] else '<div class="no-data">No data</div>'}
+            </div>
+
+            <div class="card">
+              <h3>ZAP — Top alerts</h3>
+              {"".join([f'''
+              <div class="sev-row">
+                <span style="font-size:12px">{a.get("name","?")[:40]}</span>
+                <span class="sev-badge" style="background:#ffe0e0;color:#c0392b">{a.get("riskdesc","?").split(" ")[0]}</span>
+              </div>''' for a in zap["alerts"]]) if zap["alerts"] else '<div class="no-data">No data</div>'}
+            </div>
+
+          </div>
+
+          <div class="grid2">
+
+            <div class="card">
+              <h3>Dependency Check — CVEs</h3>
+              {"".join([f'''
+              <div class="sev-row">
+                <span style="font-size:11px;font-family:monospace">{v["cve"]}</span>
+                <span class="{v["severity"]} sev-badge">{v["severity"]}</span>
+              </div>''' for v in depcheck["vulns"]]) if depcheck["vulns"] else '<div class="no-data">No data</div>'}
+            </div>
+
+            <div class="card">
+              <h3>Nuclei — Findings</h3>
+              {"".join([f'''
+              <div class="sev-row">
+                <span style="font-size:12px">{r.get("info",{}).get("name","?")[:40]}</span>
+                <span class="sev-badge" style="background:#d4edda;color:#155724">{r.get("info",{}).get("severity","?").upper()}</span>
+              </div>''' for r in nuclei["findings"]]) if nuclei["findings"] else '<div class="no-data">No data</div>'}
+            </div>
+
           </div>
 
           <footer>
-            Generated automatically by GitHub Actions — <span>VulnShop DevSecOps PFE</span> — {now}
+            <p>Generated by GitHub Actions — <span>VulnShop DevSecOps PFE</span> — {now}</p>
+            <p style="margin-top:6px">Tools: Semgrep · OWASP ZAP · Dependency-Check · Nuclei</p>
           </footer>
 
           </body>
@@ -681,13 +750,14 @@ jobs:
               f.write(html)
 
           print(f"Dashboard generated!")
-          print(f"Semgrep  : {len(semgrep_results)} findings")
-          print(f"ZAP      : {zap_total} findings")
-          print(f"DepCheck : {dep_total} CVEs")
-          print(f"TOTAL    : {grand_total} findings")
+          print(f"Semgrep  : {semgrep['total']} findings")
+          print(f"ZAP      : {zap['total']} findings")
+          print(f"DepCheck : {depcheck['total']} CVEs")
+          print(f"Nuclei   : {nuclei['total']} findings")
+          print(f"TOTAL    : {total} findings")
           EOF
 
-      - name: Upload Dashboard
+      - name: Upload Security Dashboard
         uses: actions/upload-artifact@v4
         if: always()
         with:
