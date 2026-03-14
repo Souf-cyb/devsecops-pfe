@@ -357,6 +357,13 @@ jobs:
           path: reports/zap
         continue-on-error: true
 
+      - name: Debug DepCheck files
+        run: |
+          echo "=== reports/depcheck ==="
+          find reports/depcheck -type f 2>/dev/null || echo "empty"
+          echo "=== cherche dependency-check partout ==="
+          find . -name "dependency-check*" 2>/dev/null
+
       - name: Download Dependency Check Report
         uses: actions/download-artifact@v4
         with:
@@ -476,12 +483,14 @@ jobs:
                   if f not in paths:
                       paths.append(f)
 
+              print(f"DepCheck paths to try: {paths}")
+
               for p in paths:
                   if os.path.exists(p):
                       print(f"DepCheck found: {p}")
                       with open(p) as f:
                           data = json.load(f)
-                      deps  = data.get("dependencies", [])
+                      deps     = data.get("dependencies", [])
                       critical = high = medium = low = 0
                       vuln_list = []
                       for d in deps:
@@ -498,13 +507,14 @@ jobs:
                                   "severity": sev,
                                   "desc":     v.get("description","")[:120]
                               })
-                      print(f"DepCheck: {critical} Critical, {high} High, {medium} Medium")
+                      print(f"DepCheck: {critical} Critical, {high} High, {medium} Medium, {low} Low")
                       return {
                           "critical": critical, "high": high,
                           "medium":   medium,   "low":  low,
                           "total":    critical + high + medium + low,
                           "vulns":    vuln_list[:5]
                       }
+
               print("DepCheck: file not found!")
               return {"critical":0,"high":0,"medium":0,"low":0,"total":0,"vulns":[]}
 
@@ -570,7 +580,7 @@ jobs:
 
               print("Nuclei: file not found!")
               return {"critical":0,"high":0,"medium":0,"low":0,"info":0,"total":0,"findings":[]}
-              
+
           # ─── LOAD ALL ──────────────────────────────────────
           semgrep  = load_semgrep()
           zap      = load_zap()
