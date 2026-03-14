@@ -202,12 +202,12 @@ jobs:
           curl -sS https://getcomposer.org/installer | php
           php composer.phar install --no-interaction --ignore-platform-reqs || true
 
-      - name: Run OWASP Dependency Check
+      - name: Run Dependency Check
         uses: dependency-check/Dependency-Check_Action@main
         with:
           project: 'devsecops-pfe'
           path: './app'
-          format: 'HTML JSON'
+          format: 'ALL'          # ← génère HTML + JSON + XML + CSV
           args: >
             --enableExperimental
 
@@ -306,8 +306,7 @@ jobs:
         run: |
           docker compose up -d --build
           sleep 40
-          curl -s http://localhost:80 || echo "Still starting..."
-          sleep 10
+          curl -s http://localhost:80 | head -5 || true
 
       - name: Run Nuclei
         run: |
@@ -327,9 +326,9 @@ jobs:
         with:
           name: nuclei-security-report
           path: |
-            reports/nuclei-report.txt
             reports/nuclei-report.json
-
+            reports/nuclei-report.txt
+          if-no-files-found: warn
 
 # ═══════════════════════════════════════════════
 #  JOB 6 — GENERATE SECURITY DASHBOARD
@@ -528,6 +527,8 @@ jobs:
               for f in found:
                   if f not in paths:
                       paths.append(f)
+
+              print(f"Nuclei paths to try: {paths}")
 
               for p in paths:
                   if os.path.exists(p):
