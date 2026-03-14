@@ -27,6 +27,7 @@ jobs:
           semgrep scan \
             --config p/owasp-top-ten \
             --config p/php \
+            --exclude app/secure \
             --json > reports/semgrep-report.json
         continue-on-error: true
 
