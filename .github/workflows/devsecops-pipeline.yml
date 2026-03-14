@@ -252,25 +252,45 @@ jobs:
       - name: Start VulnShop
         run: |
           docker compose up -d --build
-          echo "Waiting for services..."
-          sleep 40
-          curl -s http://localhost:80 | head -5 || echo "Still starting..."
-          sleep 10
+          echo "Waiting for MySQL + Apache..."
 
-      - name: ZAP Full Scan
-        uses: zaproxy/action-full-scan@v0.10.0
-        with:
-          target: 'http://localhost:80'
-          cmd_options: '-I'
-        continue-on-error: true
+          # Attendre que l'app réponde vraiment
+          for i in {1..15}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80)
+            echo "Attempt $i — HTTP Status: $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "App is ready!"
+              break
+            fi
+            sleep 10
+          done
 
-      - name: Prepare ZAP reports for upload
-        if: always()
+      - name: Prepare ZAP directory
         run: |
           mkdir -p zap-work
-          # L'action génère les rapports dans le dossier courant
-          cp report_html.html zap-work/ 2>/dev/null && echo "HTML copied" || echo "HTML not found"
-          cp report_json.json zap-work/ 2>/dev/null && echo "JSON copied" || echo "JSON not found"
+          chmod 777 zap-work
+          chmod 777 $(pwd)
+
+      - name: Run ZAP Full Scan
+        run: |
+          docker run --network=host \
+            -v $(pwd)/zap-work:/zap/wrk/:rw \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-full-scan.py \
+            -t http://localhost:80 \
+            -r report_html.html \
+            -J report_json.json \
+            -I || true
+
+      - name: Check and fix ZAP output
+        if: always()
+        run: |
+          echo "=== zap-work contents ==="
+          ls -la zap-work/
+          # ZAP écrit parfois dans le dossier courant
+          [ -f "report_html.html" ] && mv report_html.html zap-work/ && echo "HTML moved"
+          [ -f "report_json.json" ] && mv report_json.json zap-work/ && echo "JSON moved"
+          echo "=== Final ==="
           ls -la zap-work/
 
       - name: Upload ZAP Report
