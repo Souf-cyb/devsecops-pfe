@@ -66,16 +66,15 @@ jobs:
               data = json.load(f)
 
           results = data.get("results", [])
-          critical = [r for r in results if r["extra"]["severity"] == "ERROR"]
+          errors  = [r for r in results if r["extra"]["severity"] == "ERROR"]
 
-          print(f"Total findings  : {len(results)}")
-          print(f"Critical (ERROR): {len(critical)}")
+          print(f"High findings: {len(errors)}")
 
-          if len(critical) > 30:
-              print("❌ SECURITY GATE FAILED — Too many critical vulnerabilities!")
+          if len(errors) > 15:
+              print("SECURITY GATE FAILED — too many critical findings!")
               sys.exit(1)
           else:
-              print("✅ SECURITY GATE PASSED!")
+              print("SECURITY GATE PASSED")
           EOF
         continue-on-error: true
 
@@ -244,6 +243,30 @@ jobs:
           name: dependency-check-report
           path: reports/
 
+  iac-checkov:
+    name: IaC Security - Checkov
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: dockerfile,docker_compose
+          output_format: json
+          output_file_path: reports/checkov-report.json
+        continue-on-error: true
+
+      - name: Upload Checkov Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkov-report
+          path: reports/checkov-report.json
+          if-no-files-found: warn  
+
 # ═══════════════════════════════════════════════
 #  JOB 3 — BUILD DOCKER
 # ═══════════════════════════════════════════════
@@ -263,7 +286,34 @@ jobs:
           docker compose ps
           curl -s http://localhost:80 || echo "App still starting..."
           sleep 10
-          
+
+  trivy-scan:
+    name: Container Scan - Trivy
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t vulnshop:latest ./app
+
+      - name: Run Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'vulnshop:latest'
+          format: 'json'
+          output: 'trivy-report.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
+
+      - name: Upload Trivy Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-security-report
+          path: trivy-report.json
+          if-no-files-found: warn        
 # ═══════════════════════════════════════════════
 #  JOB 4 — DAST ZAP FULL SCAN
 # ═══════════════════════════════════════════════
