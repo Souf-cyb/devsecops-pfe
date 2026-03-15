@@ -457,6 +457,13 @@ jobs:
           path: reports/nuclei
         continue-on-error: true
 
+      - name: Download Checkov Report
+        uses: actions/download-artifact@v4
+        with:
+          name: checkov-report
+          path: reports/checkov
+        continue-on-error: true
+
       - name: Debug — list all downloaded files
         run: |
           echo "=== reports/semgrep ==="
@@ -662,6 +669,46 @@ jobs:
               print("Nuclei: file not found!")
               return {"critical":0,"high":0,"medium":0,"low":0,"info":0,"total":0,"findings":[]}
 
+          def load_checkov():
+              paths = [
+                  "reports/checkov/results_json.json",
+                  "reports/checkov/checkov-report.json",
+              ]
+              found = glob.glob("reports/checkov/**/*.json", recursive=True)
+              for f in found:
+                  if f not in paths:
+                      paths.append(f)
+
+              print(f"Checkov paths to try: {paths}")
+
+              for p in paths:
+                  if os.path.exists(p):
+                      print(f"Checkov found: {p}")
+                      with open(p) as f:
+                          data = json.load(f)
+                      summary  = data.get("summary", {})
+                      passed   = summary.get("passed", 0)
+                      failed   = summary.get("failed", 0)
+                      skipped  = summary.get("skipped", 0)
+                      failed_checks = data.get("results", {}).get("failed_checks", [])
+                      checks = []
+                      for c in failed_checks:
+                          checks.append({
+                              "id":   c.get("check_id", "?"),
+                              "name": c.get("check_name", "?"),
+                              "file": c.get("file_path", "?"),
+                          })
+                      print(f"Checkov: {passed} passed, {failed} failed")
+                      return {
+                          "passed":  passed,
+                          "failed":  failed,
+                          "skipped": skipped,
+                          "total":   failed,
+                          "checks":  checks[:5]
+                      }
+
+              print("Checkov: file not found!")
+              return {"passed":0,"failed":0,"skipped":0,"total":0,"checks":[]}
           # ─── LOAD ALL ──────────────────────────────────────
           semgrep  = load_semgrep()
           zap      = load_zap()
@@ -687,12 +734,13 @@ jobs:
               .total-card {{ background:linear-gradient(135deg,#e94560,#c0392b); color:white; border-radius:12px; padding:25px 30px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; }}
               .total-card h2 {{ font-size:48px; font-weight:500; }}
               .total-card p {{ font-size:14px; opacity:0.8; margin-top:5px; }}
-              .grid4 {{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }}
+              .grid5 {{ display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:20px; }}
               .tool-card {{ background:white; border-radius:12px; padding:20px; box-shadow:0 2px 8px rgba(0,0,0,0.06); border-top:4px solid #ccc; }}
-              .tool-card.semgrep {{ border-top-color:#7f77dd; }}
-              .tool-card.zap     {{ border-top-color:#e94560; }}
-              .tool-card.depcheck{{ border-top-color:#f39c12; }}
-              .tool-card.nuclei  {{ border-top-color:#27ae60; }}
+              .tool-card.semgrep  {{ border-top-color:#7f77dd; }}
+              .tool-card.zap      {{ border-top-color:#e94560; }}
+              .tool-card.depcheck {{ border-top-color:#f39c12; }}
+              .tool-card.nuclei   {{ border-top-color:#27ae60; }}
+              .tool-card.checkov  {{ border-top-color:#e67e22; }}
               .tool-card h3 {{ font-size:13px; color:#888; margin-bottom:12px; font-weight:400; }}
               .tool-card .num {{ font-size:36px; font-weight:500; margin-bottom:4px; }}
               .tool-card .sub {{ font-size:12px; color:#888; }}
@@ -703,10 +751,10 @@ jobs:
               .sev-row:last-child {{ border:none; }}
               .dot {{ width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:8px; }}
               .dot-critical {{ background:#8e0000; }}
-              .dot-high    {{ background:#e94560; }}
-              .dot-medium  {{ background:#f39c12; }}
-              .dot-low     {{ background:#27ae60; }}
-              .dot-info    {{ background:#3498db; }}
+              .dot-high     {{ background:#e94560; }}
+              .dot-medium   {{ background:#f39c12; }}
+              .dot-low      {{ background:#27ae60; }}
+              .dot-info     {{ background:#3498db; }}
               table {{ width:100%; border-collapse:collapse; font-size:12px; }}
               th {{ background:#1a1a2e; color:white; padding:8px 12px; text-align:left; font-weight:400; font-size:11px; }}
               td {{ padding:8px 12px; border-bottom:1px solid #f5f5f5; }}
@@ -730,7 +778,7 @@ jobs:
               <h1>VulnShop — Security Dashboard</h1>
               <p>Generated on {now} — DevSecOps PFE</p>
             </div>
-            <span class="badge">4 tools</span>
+            <span class="badge">5 tools</span>
           </div>
 
           <div class="total-card">
@@ -743,10 +791,11 @@ jobs:
               <div>ZAP      : {zap['total']} alerts</div>
               <div>DepCheck : {depcheck['total']} CVEs</div>
               <div>Nuclei   : {nuclei['total']} findings</div>
+              <div>Checkov  : {checkov['total']} misconfigs</div>
             </div>
           </div>
 
-          <div class="grid4">
+          <div class="grid5">
 
             <div class="tool-card semgrep">
               <h3>SAST — Semgrep</h3>
@@ -797,6 +846,17 @@ jobs:
               </div>
             </div>
 
+            <div class="tool-card checkov">
+              <h3>IaC — Checkov</h3>
+              <div class="num" style="color:#e67e22">{checkov['failed']}</div>
+              <div class="sub">misconfigurations</div>
+              <div style="margin-top:12px;font-size:12px">
+                <div class="sev-row"><span><span class="dot dot-low"></span>Passed</span><b>{checkov['passed']}</b></div>
+                <div class="sev-row"><span><span class="dot dot-high"></span>Failed</span><b>{checkov['failed']}</b></div>
+                <div class="sev-row"><span><span class="dot" style="background:#888"></span>Skipped</span><b>{checkov['skipped']}</b></div>
+              </div>
+            </div>
+
           </div>
 
           <div class="grid2">
@@ -833,19 +893,20 @@ jobs:
             </div>
 
             <div class="card">
-              <h3>Nuclei — Findings</h3>
+              <h3>Checkov — Misconfigurations</h3>
               {"".join([f'''
               <div class="sev-row">
-                <span style="font-size:12px">{r.get("info",{}).get("name","?")[:40]}</span>
-                <span class="sev-badge" style="background:#d4edda;color:#155724">{r.get("info",{}).get("severity","?").upper()}</span>
-              </div>''' for r in nuclei["findings"]]) if nuclei["findings"] else '<div class="no-data">No data</div>'}
+                <span style="font-size:11px;font-family:monospace">{c["id"]}</span>
+                <span style="font-size:11px;color:#666;flex:1;margin:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{c["name"][:35]}</span>
+                <span style="font-size:10px;color:#888">{c["file"].split("/")[-1]}</span>
+              </div>''' for c in checkov["checks"]]) if checkov["checks"] else '<div class="no-data">No data</div>'}
             </div>
 
           </div>
 
           <footer>
             <p>Generated by GitHub Actions — <span>VulnShop DevSecOps PFE</span> — {now}</p>
-            <p style="margin-top:6px">Tools: Semgrep · OWASP ZAP · Dependency-Check · Nuclei</p>
+            <p style="margin-top:6px">Tools: Semgrep · OWASP ZAP · Dependency-Check · Nuclei · Checkov</p>
           </footer>
 
           </body>
@@ -860,6 +921,7 @@ jobs:
           print(f"ZAP      : {zap['total']} findings")
           print(f"DepCheck : {depcheck['total']} CVEs")
           print(f"Nuclei   : {nuclei['total']} findings")
+          print(f"Checkov  : {checkov['total']} misconfigs")
           print(f"TOTAL    : {total} findings")
           EOF
 
