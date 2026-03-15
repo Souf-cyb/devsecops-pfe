@@ -730,14 +730,47 @@ jobs:
 
               print("Checkov: file not found!")
               return {"passed":0,"failed":0,"skipped":0,"total":0,"checks":[]}
+
+          def load_trivy():
+              paths = [
+                  "reports/trivy/trivy-report.json",
+                  "reports/trivy/results.json",
+              ]
+              found = glob.glob("reports/trivy/**/*.json", recursive=True)
+              for f in found:
+                  if f not in paths:
+                      paths.append(f)
+
+              print(f"Trivy paths to try: {paths}")
+
+              for p in paths:
+                  if os.path.exists(p):
+                      print(f"Trivy found: {p}")
+                      with open(p) as f:
+                          data = json.load(f)
+                      critical = high = medium = low = 0
+                      for result in data.get("Results", []):
+                          for v in result.get("Vulnerabilities", []):
+                              sev = v.get("Severity", "").upper()
+                              if sev == "CRITICAL": critical += 1
+                              elif sev == "HIGH":   high += 1
+                              elif sev == "MEDIUM": medium += 1
+                              elif sev == "LOW":    low += 1
+                      total = critical + high + medium + low
+                      print(f"Trivy: {critical} Critical, {high} High, {medium} Medium, {low} Low")
+                      return {"total": total, "critical": critical, "high": high, "medium": medium, "low": low}
+
+              print("Trivy: file not found!")
+              return {"total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}              
           # ─── LOAD ALL ──────────────────────────────────────
           semgrep  = load_semgrep()
           zap      = load_zap()
           depcheck = load_depcheck()
           nuclei   = load_nuclei()
           checkov  = load_checkov()
+          trivy = load_trivy()
 
-          total = semgrep["total"] + zap["total"] + depcheck["total"] + nuclei["total"]
+          total = semgrep["total"] + zap["total"] + depcheck["total"] + nuclei["total"] + checkov["total"] + trivy["total"]
           now   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
           # ─── HTML DASHBOARD ────────────────────────────────
