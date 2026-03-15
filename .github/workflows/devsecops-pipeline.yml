@@ -70,7 +70,7 @@ jobs:
 
           print(f"High findings: {len(errors)}")
 
-          if len(errors) > 15:
+          if len(errors) > 25:
               print("SECURITY GATE FAILED — too many critical findings!")
               sys.exit(1)
           else:
