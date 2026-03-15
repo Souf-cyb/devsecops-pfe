@@ -9,6 +9,32 @@ on:
 jobs:
 
 # ═══════════════════════════════════════════════
+#  JOB 0 — SECRET SCANNING GITLEAKS
+# ═══════════════════════════════════════════════
+  secret-scanning:
+    name: Secret Scanning - Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # ← scan tout l'historique git
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload Gitleaks Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-report
+          path: results.sarif
+          if-no-files-found: warn
+
+# ═══════════════════════════════════════════════
 #  JOB 1 — SAST SEMGREP
 # ═══════════════════════════════════════════════
   sast-semgrep:
@@ -224,7 +250,7 @@ jobs:
   build:
     name: Build Docker
     runs-on: ubuntu-latest
-    needs: [sast-semgrep, sca-dependency-check]
+    needs: [secret-scanning, sast-semgrep, sca-dependency-check]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -239,9 +265,6 @@ jobs:
           sleep 10
           
 # ═══════════════════════════════════════════════
-#  JOB 4 — DAST ZAP FULL SCAN
-# ═══════════════════════════════════════════════
-  # ═══════════════════════════════════════════════
 #  JOB 4 — DAST ZAP FULL SCAN
 # ═══════════════════════════════════════════════
   dast-zap:
