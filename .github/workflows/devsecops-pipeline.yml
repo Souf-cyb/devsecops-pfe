@@ -304,23 +304,42 @@ jobs:
       - name: Build Docker image
         run: docker build -t vulnshop:latest ./app
 
-      - name: Run Trivy scan (HTML report)
+      - name: Download Trivy HTML template
+        run: |
+          mkdir -p contrib
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o contrib/html.tpl
+
+      - name: Create reports directory
+        run: mkdir -p reports/trivy
+
+      - name: Run Trivy scan (JSON)
         uses: aquasecurity/trivy-action@master
         with:
-         image-ref: 'vulnshop:latest'
-         format: 'template'
-         template: "@contrib/html.tpl"
-         output: 'trivy-report.html'
-         severity: 'CRITICAL,HIGH,MEDIUM'
-         exit-code: '0'
+          image-ref: 'vulnshop:latest'
+          format: 'json'
+          output: 'reports/trivy/trivy-report.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
 
-      - name: Upload Trivy Report
+      - name: Run Trivy scan (HTML)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'vulnshop:latest'
+          format: 'template'
+          template: '@contrib/html.tpl'
+          output: 'reports/trivy/trivy-report.html'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
+
+      - name: Upload Trivy Reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
-         name: trivy-security-report
-         path: trivy-report.html
-         if-no-files-found: warn 
+          name: trivy-report
+          path: |
+            reports/trivy/trivy-report.json
+            reports/trivy/trivy-report.html
+          if-no-files-found: warn
 # ═══════════════════════════════════════════════
 #  JOB 4 — DAST ZAP FULL SCAN
 # ═══════════════════════════════════════════════
@@ -716,6 +735,7 @@ jobs:
           zap      = load_zap()
           depcheck = load_depcheck()
           nuclei   = load_nuclei()
+          checkov  = load_checkov()
 
           total = semgrep["total"] + zap["total"] + depcheck["total"] + nuclei["total"]
           now   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
