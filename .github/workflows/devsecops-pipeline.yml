@@ -18,7 +18,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0    # ← scan tout l'historique git
+          fetch-depth: 0
 
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
@@ -45,7 +45,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Semgrep
-        run: pip install semgrep
+        run: pip install semgrep --break-system-packages
 
       - name: Run Semgrep SAST
         run: |
@@ -54,7 +54,7 @@ jobs:
             --config p/owasp-top-ten \
             --config p/php \
             --exclude app/secure \
-            --json > reports/semgrep-report.json
+            --json > reports/semgrep-report.json || true
         continue-on-error: true
 
       - name: Security Gate
@@ -76,6 +76,7 @@ jobs:
           else:
               print("SECURITY GATE PASSED")
           EOF
+
       - name: Generate Semgrep HTML Report
         run: |
           python3 << 'EOF'
@@ -84,8 +85,8 @@ jobs:
           with open("reports/semgrep-report.json") as f:
               data = json.load(f)
 
-          results = data.get("results", [])
-          errors = [r for r in results if r["extra"]["severity"] == "ERROR"]
+          results  = data.get("results", [])
+          errors   = [r for r in results if r["extra"]["severity"] == "ERROR"]
           warnings = [r for r in results if r["extra"]["severity"] == "WARNING"]
 
           html = f"""<!DOCTYPE html>
@@ -144,11 +145,11 @@ jobs:
           for i, r in enumerate(results, 1):
               severity = r["extra"]["severity"]
               check_id = r["check_id"].split(".")[-1].replace("-", " ").title()
-              path = r["path"]
-              line = r["start"]["line"]
-              cwes = r["extra"].get("metadata", {}).get("cwe", [])
+              path     = r["path"]
+              line     = r["start"]["line"]
+              cwes     = r["extra"].get("metadata", {}).get("cwe", [])
               cwe_text = cwes[0].split(":")[0] if cwes else "N/A"
-              color = "#e94560" if severity == "ERROR" else "#f39c12"
+              color    = "#e94560" if severity == "ERROR" else "#f39c12"
               html += f"""
               <tr>
                   <td>{i}</td>
@@ -164,19 +165,19 @@ jobs:
           """
 
           for r in results:
-              severity = r["extra"]["severity"]
-              check_id = r["check_id"].split(".")[-1]
-              path = r["path"]
-              line = r["start"]["line"]
-              message = r["extra"]["message"]
-              metadata = r["extra"].get("metadata", {})
-              cwes = metadata.get("cwe", [])
-              owasps = metadata.get("owasp", [])
-              impact = metadata.get("impact", "N/A")
+              severity   = r["extra"]["severity"]
+              check_id   = r["check_id"].split(".")[-1]
+              path       = r["path"]
+              line       = r["start"]["line"]
+              message    = r["extra"]["message"]
+              metadata   = r["extra"].get("metadata", {})
+              cwes       = metadata.get("cwe", [])
+              owasps     = metadata.get("owasp", [])
+              impact     = metadata.get("impact", "N/A")
               likelihood = metadata.get("likelihood", "N/A")
-              cwe_badges = " ".join([f'<span class="cwe">{c.split(":")[0]}</span>' for c in cwes])
+              cwe_badges   = " ".join([f'<span class="cwe">{c.split(":")[0]}</span>' for c in cwes])
               owasp_badges = " ".join([f'<span class="owasp">{o.split(" - ")[0]}</span>' for o in owasps])
-              badge_class = "badge-error" if severity == "ERROR" else "badge-warning"
+              badge_class  = "badge-error" if severity == "ERROR" else "badge-warning"
               html += f"""
           <div class="finding {severity}">
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
@@ -187,7 +188,7 @@ jobs:
               <div class="meta">File: <b>{path}</b> — Line <b>{line}</b></div>
               <div class="meta">Impact: <b>{impact}</b> | Likelihood: <b>{likelihood}</b></div>
               <div class="message">{message}</div>
-              <div class="location">>>> {path}:{line}</div>
+              <div class="location">&gt;&gt;&gt; {path}:{line}</div>
           </div>"""
 
           html += """
@@ -196,7 +197,7 @@ jobs:
 
           with open("reports/semgrep-report.html", "w") as f:
               f.write(html)
-          print(f"✅ HTML report generated with {len(results)} findings")
+          print(f"HTML report generated with {len(results)} findings")
           EOF
         continue-on-error: true
 
@@ -230,7 +231,7 @@ jobs:
         with:
           project: 'devsecops-pfe'
           path: './app'
-          format: 'ALL'          # ← génère HTML + JSON + XML + CSV
+          format: 'ALL'
           args: >
             --enableExperimental
 
@@ -241,6 +242,9 @@ jobs:
           name: dependency-check-report
           path: reports/
 
+# ═══════════════════════════════════════════════
+#  JOB 3 — IaC CHECKOV
+# ═══════════════════════════════════════════════
   iac-checkov:
     name: IaC Security - Checkov
     runs-on: ubuntu-latest
@@ -272,12 +276,12 @@ jobs:
           if-no-files-found: warn
 
 # ═══════════════════════════════════════════════
-#  JOB 3 — BUILD DOCKER
+#  JOB 4 — BUILD DOCKER
 # ═══════════════════════════════════════════════
   build:
     name: Build Docker
     runs-on: ubuntu-latest
-    needs: [secret-scanning, sast-semgrep, sca-dependency-check]
+    needs: [secret-scanning, sast-semgrep, sca-dependency-check, iac-checkov]
     if: always()
     steps:
       - name: Checkout code
@@ -292,11 +296,14 @@ jobs:
           curl -s http://localhost:80 || echo "App still starting..."
           sleep 10
 
+# ═══════════════════════════════════════════════
+#  JOB 5 — CONTAINER SCAN TRIVY
+# ═══════════════════════════════════════════════
   trivy-scan:
     name: Container Scan - Trivy
     runs-on: ubuntu-latest
     needs: [build]
-
+    if: always()
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -340,8 +347,9 @@ jobs:
             reports/trivy/trivy-report.json
             reports/trivy/trivy-report.html
           if-no-files-found: warn
+
 # ═══════════════════════════════════════════════
-#  JOB 4 — DAST ZAP FULL SCAN
+#  JOB 6 — DAST ZAP FULL SCAN
 # ═══════════════════════════════════════════════
   dast-zap:
     name: DAST - OWASP ZAP Full Scan
@@ -391,8 +399,9 @@ jobs:
           name: zap-security-report
           path: ${{ github.workspace }}/zap-work/
           if-no-files-found: warn
+
 # ═══════════════════════════════════════════════
-#  JOB 5 — DAST NUCLEI
+#  JOB 7 — DAST NUCLEI
 # ═══════════════════════════════════════════════
   dast-nuclei:
     name: DAST - Nuclei Scanner
@@ -432,12 +441,12 @@ jobs:
           if-no-files-found: warn
 
 # ═══════════════════════════════════════════════
-#  JOB 6 — GENERATE SECURITY DASHBOARD
+#  JOB 8 — GENERATE SECURITY DASHBOARD
 # ═══════════════════════════════════════════════
   generate-dashboard:
     name: Generate Security Dashboard
     runs-on: ubuntu-latest
-    needs: [sast-semgrep, sca-dependency-check, dast-zap, dast-nuclei]
+    needs: [sast-semgrep, sca-dependency-check, iac-checkov, trivy-scan, dast-zap, dast-nuclei]
     if: always()
     steps:
       - name: Checkout code
@@ -456,13 +465,6 @@ jobs:
           name: zap-security-report
           path: reports/zap
         continue-on-error: true
-
-      - name: Debug DepCheck files
-        run: |
-          echo "=== reports/depcheck ==="
-          find reports/depcheck -type f 2>/dev/null || echo "empty"
-          echo "=== cherche dependency-check partout ==="
-          find . -name "dependency-check*" 2>/dev/null
 
       - name: Download Dependency Check Report
         uses: actions/download-artifact@v4
@@ -485,6 +487,13 @@ jobs:
           path: reports/checkov
         continue-on-error: true
 
+      - name: Download Trivy Report
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-report
+          path: reports/trivy
+        continue-on-error: true
+
       - name: Debug — list all downloaded files
         run: |
           echo "=== reports/semgrep ==="
@@ -495,6 +504,10 @@ jobs:
           find reports/depcheck -type f 2>/dev/null || echo "empty"
           echo "=== reports/nuclei ==="
           find reports/nuclei -type f 2>/dev/null || echo "empty"
+          echo "=== reports/checkov ==="
+          find reports/checkov -type f 2>/dev/null || echo "empty"
+          echo "=== reports/trivy ==="
+          find reports/trivy -type f 2>/dev/null || echo "empty"
 
       - name: Generate Dashboard
         run: |
@@ -504,140 +517,110 @@ jobs:
 
           # ─── SEMGREP ───────────────────────────────────────
           def load_semgrep():
-              paths = [
-                  "reports/semgrep/semgrep-report.json",
-                  "reports/semgrep/reports/semgrep-report.json",
-              ]
+              paths = ["reports/semgrep/semgrep-report.json"]
+              found = glob.glob("reports/semgrep/**/*.json", recursive=True)
+              for f in found:
+                  if f not in paths:
+                      paths.append(f)
               for p in paths:
                   if os.path.exists(p):
                       print(f"Semgrep found: {p}")
                       with open(p) as f:
                           data = json.load(f)
-                      results = data.get("results", [])
+                      results  = data.get("results", [])
                       errors   = [r for r in results if r["extra"]["severity"] == "ERROR"]
                       warnings = [r for r in results if r["extra"]["severity"] == "WARNING"]
-                      sqli = [r for r in results if "SQL"     in r["check_id"]]
-                      xss  = [r for r in results if "echoed"  in r["check_id"] or "xss" in r["check_id"].lower()]
-                      cmdi = [r for r in results if "exec"    in r["check_id"]]
+                      sqli = [r for r in results if "sql"     in r["check_id"].lower()]
+                      xss  = [r for r in results if "xss"     in r["check_id"].lower()]
+                      cmdi = [r for r in results if "exec"    in r["check_id"].lower() or "command" in r["check_id"].lower()]
                       return {
-                          "total":    len(results),
-                          "errors":   len(errors),
-                          "warnings": len(warnings),
-                          "sqli":     len(sqli),
-                          "xss":      len(xss),
-                          "cmdi":     len(cmdi),
+                          "total": len(results), "errors": len(errors),
+                          "warnings": len(warnings), "sqli": len(sqli),
+                          "xss": len(xss), "cmdi": len(cmdi),
                           "findings": results[:5]
                       }
               print("Semgrep: file not found!")
               return {"total":0,"errors":0,"warnings":0,"sqli":0,"xss":0,"cmdi":0,"findings":[]}
 
           # ─── ZAP ───────────────────────────────────────────
-          # ─── ZAP ───────────────────────────────────────────
           def load_zap():
-              paths = [
-                  "reports/zap/report_json.json",
-                  "reports/zap/zap-security-report/report_json.json",
-              ]
+              paths = ["reports/zap/report_json.json"]
               found = glob.glob("reports/zap/**/*.json", recursive=True)
               for f in found:
                   if f not in paths:
                       paths.append(f)
-
               for p in paths:
                   if os.path.exists(p):
                       print(f"ZAP found: {p}")
                       with open(p) as f:
                           data = json.load(f)
-
                       sites = data.get("site", [])
                       if isinstance(sites, dict):
                           sites = [sites]
-
                       high = medium = low = info = 0
                       all_alerts = []
-
                       for s in sites:
-                          alerts = s.get("alerts", [])
-                          for a in alerts:
+                          for a in s.get("alerts", []):
                               riskcode = int(a.get("riskcode", "0"))
                               all_alerts.append(a)
                               if   riskcode == 3: high   += 1
                               elif riskcode == 2: medium += 1
                               elif riskcode == 1: low    += 1
                               else:               info   += 1
-
                       print(f"ZAP: {high} High, {medium} Medium, {low} Low, {info} Info")
                       return {
-                          "high":   high,
-                          "medium": medium,
-                          "low":    low,
-                          "info":   info,
-                          "total":  high + medium + low + info,
+                          "high": high, "medium": medium, "low": low, "info": info,
+                          "total": high + medium + low + info,
                           "alerts": all_alerts[:5]
                       }
-
               print("ZAP: file not found!")
               return {"high":0,"medium":0,"low":0,"info":0,"total":0,"alerts":[]}
 
           # ─── DEPENDENCY CHECK ──────────────────────────────
           def load_depcheck():
-              paths = [
-                  "reports/depcheck/dependency-check-report.json",
-                  "reports/depcheck/reports/dependency-check-report.json",
-              ]
+              paths = ["reports/depcheck/dependency-check-report.json"]
               found = glob.glob("reports/depcheck/**/*.json", recursive=True)
               for f in found:
                   if f not in paths:
                       paths.append(f)
-
               print(f"DepCheck paths to try: {paths}")
-
               for p in paths:
                   if os.path.exists(p):
                       print(f"DepCheck found: {p}")
                       with open(p) as f:
                           data = json.load(f)
-                      deps     = data.get("dependencies", [])
                       critical = high = medium = low = 0
                       vuln_list = []
-                      for d in deps:
-                          vulns = d.get("vulnerabilities", [])
-                          for v in vulns:
+                      for d in data.get("dependencies", []):
+                          for v in d.get("vulnerabilities", []):
                               sev = v.get("severity","").upper()
                               if   sev == "CRITICAL": critical += 1
                               elif sev == "HIGH":     high     += 1
                               elif sev == "MEDIUM":   medium   += 1
                               else:                   low      += 1
                               vuln_list.append({
-                                  "name":     d.get("fileName","?"),
-                                  "cve":      v.get("name","?"),
+                                  "name": d.get("fileName","?"),
+                                  "cve":  v.get("name","?"),
                                   "severity": sev,
-                                  "desc":     v.get("description","")[:120]
+                                  "desc": v.get("description","")[:120]
                               })
                       print(f"DepCheck: {critical} Critical, {high} High, {medium} Medium, {low} Low")
                       return {
-                          "critical": critical, "high": high,
-                          "medium":   medium,   "low":  low,
-                          "total":    critical + high + medium + low,
-                          "vulns":    vuln_list[:5]
+                          "critical": critical, "high": high, "medium": medium, "low": low,
+                          "total": critical + high + medium + low,
+                          "vulns": vuln_list[:5]
                       }
-
               print("DepCheck: file not found!")
               return {"critical":0,"high":0,"medium":0,"low":0,"total":0,"vulns":[]}
 
           # ─── NUCLEI ────────────────────────────────────────
           def load_nuclei():
-              paths = [
-                  "reports/nuclei/nuclei-report.json",
-                  "reports/nuclei/reports/nuclei-report.json",
-              ]
+              paths = ["reports/nuclei/nuclei-report.json"]
               found = glob.glob("reports/nuclei/**/*.json", recursive=True)
               for f in found:
                   if f not in paths:
                       paths.append(f)
-
               print(f"Nuclei paths to try: {paths}")
-
               for p in paths:
                   if os.path.exists(p):
                       print(f"Nuclei found: {p}")
@@ -645,75 +628,57 @@ jobs:
                       with open(p) as f:
                           content = f.read().strip()
                       if not content:
-                          print("Nuclei: empty file")
                           continue
-
                       try:
                           data = json.loads(content)
-                          if isinstance(data, list):
-                              findings = data
-                          elif isinstance(data, dict):
-                              findings = [data]
+                          findings = data if isinstance(data, list) else [data]
                       except:
                           for line in content.splitlines():
                               line = line.strip()
                               if line:
                                   try:
                                       obj = json.loads(line)
-                                      if isinstance(obj, list):
-                                          findings.extend(obj)
-                                      elif isinstance(obj, dict):
-                                          findings.append(obj)
+                                      if isinstance(obj, list): findings.extend(obj)
+                                      elif isinstance(obj, dict): findings.append(obj)
                                   except:
                                       pass
-
                       critical = high = medium = low = info = 0
                       for r in findings:
-                          if not isinstance(r, dict):
-                              continue
+                          if not isinstance(r, dict): continue
                           sev = r.get("info", {}).get("severity", "").lower()
                           if   sev == "critical": critical += 1
                           elif sev == "high":     high     += 1
                           elif sev == "medium":   medium   += 1
                           elif sev == "low":      low      += 1
                           else:                   info     += 1
-
                       print(f"Nuclei: {critical} Critical, {high} High, {medium} Medium, {low} Low")
                       return {
-                          "critical": critical, "high": high,
-                          "medium":   medium,   "low":  low,
-                          "info":     info,
-                          "total":    len(findings),
-                          "findings": findings[:5]
+                          "critical": critical, "high": high, "medium": medium,
+                          "low": low, "info": info,
+                          "total": len(findings), "findings": findings[:5]
                       }
-
               print("Nuclei: file not found!")
               return {"critical":0,"high":0,"medium":0,"low":0,"info":0,"total":0,"findings":[]}
 
+          # ─── CHECKOV ───────────────────────────────────────
           def load_checkov():
-              paths = [
-                  "reports/checkov/results_json.json",
-                  "reports/checkov/checkov-report.json",
-              ]
+              paths = ["reports/checkov/results_json.json", "reports/checkov/checkov-report.json"]
               found = glob.glob("reports/checkov/**/*.json", recursive=True)
               for f in found:
                   if f not in paths:
                       paths.append(f)
-
               print(f"Checkov paths to try: {paths}")
-
               for p in paths:
                   if os.path.exists(p):
                       print(f"Checkov found: {p}")
                       with open(p) as f:
                           data = json.load(f)
-                      summary  = data.get("summary", {})
-                      passed   = summary.get("passed", 0)
-                      failed   = summary.get("failed", 0)
-                      skipped  = summary.get("skipped", 0)
-                      failed_checks = data.get("results", {}).get("failed_checks", [])
-                      checks = []
-                      for c in failed_checks:
+                      summary = data.get("summary", {})
+                      passed  = summary.get("passed", 0)
+                      failed  = summary.get("failed", 0)
+                      skipped = summary.get("skipped", 0)
+                      checks  = []
+                      for c in data.get("results", {}).get("failed_checks", []):
                           checks.append({
                               "id":   c.get("check_id", "?"),
                               "name": c.get("check_name", "?"),
@@ -721,28 +686,20 @@ jobs:
                           })
                       print(f"Checkov: {passed} passed, {failed} failed")
                       return {
-                          "passed":  passed,
-                          "failed":  failed,
-                          "skipped": skipped,
-                          "total":   failed,
-                          "checks":  checks[:5]
+                          "passed": passed, "failed": failed, "skipped": skipped,
+                          "total": failed, "checks": checks[:5]
                       }
-
               print("Checkov: file not found!")
               return {"passed":0,"failed":0,"skipped":0,"total":0,"checks":[]}
 
+          # ─── TRIVY ─────────────────────────────────────────
           def load_trivy():
-              paths = [
-                  "reports/trivy/trivy-report.json",
-                  "reports/trivy/results.json",
-              ]
+              paths = ["reports/trivy/trivy-report.json"]
               found = glob.glob("reports/trivy/**/*.json", recursive=True)
               for f in found:
                   if f not in paths:
                       paths.append(f)
-
               print(f"Trivy paths to try: {paths}")
-
               for p in paths:
                   if os.path.exists(p):
                       print(f"Trivy found: {p}")
@@ -750,25 +707,28 @@ jobs:
                           data = json.load(f)
                       critical = high = medium = low = 0
                       for result in data.get("Results", []):
-                          for v in result.get("Vulnerabilities", []):
+                          for v in result.get("Vulnerabilities", []) or []:
                               sev = v.get("Severity", "").upper()
-                              if sev == "CRITICAL": critical += 1
-                              elif sev == "HIGH":   high += 1
-                              elif sev == "MEDIUM": medium += 1
-                              elif sev == "LOW":    low += 1
+                              if   sev == "CRITICAL": critical += 1
+                              elif sev == "HIGH":     high     += 1
+                              elif sev == "MEDIUM":   medium   += 1
+                              elif sev == "LOW":      low      += 1
                       total = critical + high + medium + low
                       print(f"Trivy: {critical} Critical, {high} High, {medium} Medium, {low} Low")
-                      return {"total": total, "critical": critical, "high": high, "medium": medium, "low": low}
-
+                      return {
+                          "total": total, "critical": critical,
+                          "high": high, "medium": medium, "low": low
+                      }
               print("Trivy: file not found!")
-              return {"total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0}              
+              return {"total":0,"critical":0,"high":0,"medium":0,"low":0}
+
           # ─── LOAD ALL ──────────────────────────────────────
           semgrep  = load_semgrep()
           zap      = load_zap()
           depcheck = load_depcheck()
           nuclei   = load_nuclei()
           checkov  = load_checkov()
-          trivy = load_trivy()
+          trivy    = load_trivy()
 
           total = semgrep["total"] + zap["total"] + depcheck["total"] + nuclei["total"] + checkov["total"] + trivy["total"]
           now   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -783,7 +743,6 @@ jobs:
             <style>
               * {{ margin:0; padding:0; box-sizing:border-box; }}
               body {{ font-family:'Segoe UI',monospace; background:#111217; color:#d0d0d0; padding:14px; font-size:12px; }}
- 
               .topbar {{ display:flex; justify-content:space-between; align-items:center; padding:10px 16px; background:#181b1f; border:1px solid #2a2d35; border-radius:4px; margin-bottom:10px; }}
               .topbar-title {{ font-size:15px; font-weight:500; color:#e0e0e0; letter-spacing:.3px; }}
               .topbar-sub {{ font-size:11px; color:#6c7280; margin-top:2px; }}
@@ -792,7 +751,6 @@ jobs:
               .tag {{ font-size:10px; padding:2px 8px; border-radius:3px; background:#1f2329; border:1px solid #2a2d35; color:#9da5b4; }}
               .tag-red {{ border-color:#f4512c; color:#f4512c; }}
               .tag-green {{ border-color:#37b24d; color:#37b24d; }}
- 
               .total-panel {{ background:#181b1f; border:1px solid #2a2d35; border-radius:4px; padding:14px 20px; margin-bottom:10px; display:flex; align-items:center; gap:28px; }}
               .total-big {{ font-size:52px; font-weight:300; color:#f4512c; letter-spacing:-2px; line-height:1; }}
               .total-label {{ font-size:11px; color:#6c7280; margin-top:4px; }}
@@ -803,7 +761,6 @@ jobs:
               .sev-lbl {{ font-size:10px; color:#6c7280; margin-top:2px; }}
               .breakdown {{ font-size:11px; color:#6c7280; line-height:2.1; }}
               .breakdown span {{ color:#d0d0d0; float:right; margin-left:20px; }}
- 
               .grid6 {{ display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; margin-bottom:10px; }}
               .stat-panel {{ background:#181b1f; border:1px solid #2a2d35; border-radius:4px; padding:12px 14px; position:relative; overflow:hidden; }}
               .stat-panel::before {{ content:''; position:absolute; top:0; left:0; right:0; height:2px; }}
@@ -819,16 +776,13 @@ jobs:
               .stat-rows {{ margin-top:8px; border-top:1px solid #2a2d35; padding-top:8px; }}
               .sr {{ display:flex; justify-content:space-between; padding:3px 0; font-size:11px; color:#9da5b4; }}
               .sr b {{ color:#d0d0d0; }}
- 
               .panels-row {{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }}
               .panels-row3 {{ display:grid; grid-template-columns:2fr 1fr 1fr; gap:8px; margin-bottom:10px; }}
               .panel {{ background:#181b1f; border:1px solid #2a2d35; border-radius:4px; padding:14px; }}
               .panel-title {{ font-size:11px; color:#9da5b4; text-transform:uppercase; letter-spacing:.8px; margin-bottom:12px; display:flex; align-items:center; gap:6px; }}
               .panel-title::before {{ content:''; width:3px; height:12px; border-radius:2px; background:#4c9eff; display:inline-block; }}
- 
               .sev-row {{ display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid #2a2d35; font-size:11px; color:#9da5b4; }}
               .sev-row:last-child {{ border:none; }}
-              .dot {{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }}
               .sev-badge {{ font-size:10px; padding:2px 7px; border-radius:3px; font-weight:500; }}
               .CRITICAL {{ background:#3d0000; color:#ff6b6b; }}
               .HIGH     {{ background:#2d1a1a; color:#f4512c; }}
@@ -837,23 +791,19 @@ jobs:
               .WARNING  {{ background:#2d2210; color:#ff9f00; }}
               .ERROR    {{ background:#2d1a1a; color:#f4512c; }}
               .no-data  {{ text-align:center; color:#3d4250; padding:20px; font-size:12px; }}
- 
               .tool-item {{ display:flex; align-items:center; gap:8px; padding:7px 10px; background:#1f2329; border-radius:3px; border-left:3px solid; margin-bottom:5px; }}
               .tool-item .tname {{ flex:1; color:#d0d0d0; font-size:12px; }}
               .tool-badge {{ font-size:10px; padding:2px 7px; border-radius:3px; }}
- 
               .bar-outer {{ background:#1f2329; border-radius:2px; height:7px; margin-top:3px; overflow:hidden; }}
               .bar-inner {{ height:100%; border-radius:2px; }}
- 
               .legend {{ display:flex; flex-wrap:wrap; gap:12px; margin-bottom:10px; }}
               .leg-item {{ font-size:10px; color:#6c7280; display:flex; align-items:center; gap:4px; }}
               .leg-dot {{ width:8px; height:8px; border-radius:2px; display:inline-block; }}
- 
               footer {{ text-align:center; padding:10px; color:#3d4250; font-size:11px; border-top:1px solid #2a2d35; margin-top:8px; }}
             </style>
           </head>
           <body>
- 
+
           <div class="topbar">
             <div style="display:flex;align-items:center;gap:10px">
               <span class="live-dot"></span>
@@ -864,11 +814,11 @@ jobs:
             </div>
             <div style="display:flex;gap:6px;align-items:center">
               <span class="tag">PFE 2026</span>
-              <span class="tag tag-red">6 tools active</span>
+              <span class="tag tag-red">7 tools active</span>
               <span class="tag tag-green">● Pipeline OK</span>
             </div>
           </div>
- 
+
           <div class="total-panel">
             <div>
               <div class="total-big">{total}</div>
@@ -876,10 +826,10 @@ jobs:
             </div>
             <div class="divider"></div>
             <div class="sev-grid">
-              <div class="sev-item"><div class="sev-num" style="color:#8e0000">{depcheck['critical']}</div><div class="sev-lbl">Critical</div></div>
-              <div class="sev-item"><div class="sev-num" style="color:#f4512c">{zap['high'] + depcheck['high'] + semgrep['errors']}</div><div class="sev-lbl">High</div></div>
-              <div class="sev-item"><div class="sev-num" style="color:#ff9f00">{zap['medium'] + depcheck['medium'] + semgrep['warnings'] + nuclei['medium']}</div><div class="sev-lbl">Medium</div></div>
-              <div class="sev-item"><div class="sev-num" style="color:#37b24d">{zap['low'] + depcheck['low']}</div><div class="sev-lbl">Low</div></div>
+              <div class="sev-item"><div class="sev-num" style="color:#8e0000">{depcheck['critical'] + trivy['critical']}</div><div class="sev-lbl">Critical</div></div>
+              <div class="sev-item"><div class="sev-num" style="color:#f4512c">{zap['high'] + depcheck['high'] + semgrep['errors'] + trivy['high']}</div><div class="sev-lbl">High</div></div>
+              <div class="sev-item"><div class="sev-num" style="color:#ff9f00">{zap['medium'] + depcheck['medium'] + semgrep['warnings'] + nuclei['medium'] + trivy['medium']}</div><div class="sev-lbl">Medium</div></div>
+              <div class="sev-item"><div class="sev-num" style="color:#37b24d">{zap['low'] + depcheck['low'] + trivy['low']}</div><div class="sev-lbl">Low</div></div>
               <div class="sev-item"><div class="sev-num" style="color:#4c9eff">{zap['info']}</div><div class="sev-lbl">Info</div></div>
             </div>
             <div class="divider"></div>
@@ -892,9 +842,8 @@ jobs:
               <div>Trivy &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#4c9eff">{trivy['total']}</span></div>
             </div>
           </div>
- 
+
           <div class="grid6">
- 
             <div class="stat-panel sp-semgrep">
               <div class="stat-label">SAST · Semgrep</div>
               <div class="stat-num" style="color:#7f77dd">{semgrep['total']}</div>
@@ -907,7 +856,6 @@ jobs:
                 <div class="sr"><span>CMDi</span><b>{semgrep['cmdi']}</b></div>
               </div>
             </div>
- 
             <div class="stat-panel sp-zap">
               <div class="stat-label">DAST · ZAP</div>
               <div class="stat-num" style="color:#f4512c">{zap['total']}</div>
@@ -919,7 +867,6 @@ jobs:
                 <div class="sr"><span>Info</span><b>{zap['info']}</b></div>
               </div>
             </div>
- 
             <div class="stat-panel sp-dep">
               <div class="stat-label">SCA · DepCheck</div>
               <div class="stat-num" style="color:#ff9f00">{depcheck['total']}</div>
@@ -931,7 +878,6 @@ jobs:
                 <div class="sr"><span>Low</span><b>{depcheck['low']}</b></div>
               </div>
             </div>
- 
             <div class="stat-panel sp-nuclei">
               <div class="stat-label">DAST · Nuclei</div>
               <div class="stat-num" style="color:#37b24d">{nuclei['total']}</div>
@@ -943,7 +889,6 @@ jobs:
                 <div class="sr"><span>Low</span><b>{nuclei['low']}</b></div>
               </div>
             </div>
- 
             <div class="stat-panel sp-checkov">
               <div class="stat-label">IaC · Checkov</div>
               <div class="stat-num" style="color:#e67e22">{checkov['failed']}</div>
@@ -954,7 +899,6 @@ jobs:
                 <div class="sr"><span>Skipped</span><b>{checkov['skipped']}</b></div>
               </div>
             </div>
- 
             <div class="stat-panel sp-trivy">
               <div class="stat-label">Image · Trivy</div>
               <div class="stat-num" style="color:#4c9eff">{trivy['total']}</div>
@@ -966,23 +910,20 @@ jobs:
                 <div class="sr"><span>Low</span><b>{trivy['low']}</b></div>
               </div>
             </div>
- 
           </div>
- 
+
           <div class="panels-row">
- 
             <div class="panel">
               <div class="panel-title">Findings by severity — all tools</div>
               <div class="legend">
-                <span class="leg-item"><span class="leg-dot" style="background:#8e0000"></span>Critical {depcheck['critical']}</span>
-                <span class="leg-item"><span class="leg-dot" style="background:#f4512c"></span>High {zap['high'] + depcheck['high'] + semgrep['errors']}</span>
-                <span class="leg-item"><span class="leg-dot" style="background:#ff9f00"></span>Medium {zap['medium'] + depcheck['medium'] + semgrep['warnings']}</span>
-                <span class="leg-item"><span class="leg-dot" style="background:#37b24d"></span>Low {zap['low'] + depcheck['low']}</span>
+                <span class="leg-item"><span class="leg-dot" style="background:#8e0000"></span>Critical {depcheck['critical'] + trivy['critical']}</span>
+                <span class="leg-item"><span class="leg-dot" style="background:#f4512c"></span>High {zap['high'] + depcheck['high'] + semgrep['errors'] + trivy['high']}</span>
+                <span class="leg-item"><span class="leg-dot" style="background:#ff9f00"></span>Medium {zap['medium'] + depcheck['medium'] + semgrep['warnings'] + trivy['medium']}</span>
+                <span class="leg-item"><span class="leg-dot" style="background:#37b24d"></span>Low {zap['low'] + depcheck['low'] + trivy['low']}</span>
                 <span class="leg-item"><span class="leg-dot" style="background:#4c9eff"></span>Info {zap['info']}</span>
               </div>
               <div style="position:relative;height:190px"><canvas id="chart1"></canvas></div>
             </div>
- 
             <div class="panel">
               <div class="panel-title">Distribution par outil</div>
               <div class="legend">
@@ -995,27 +936,23 @@ jobs:
               </div>
               <div style="position:relative;height:190px"><canvas id="chart2"></canvas></div>
             </div>
- 
           </div>
- 
+
           <div class="panels-row3">
- 
             <div class="panel">
               <div class="panel-title">DepCheck — CVE breakdown</div>
               <div style="position:relative;height:150px"><canvas id="chart3"></canvas></div>
             </div>
- 
             <div class="panel">
               <div class="panel-title">Pipeline — outils actifs</div>
+              <div class="tool-item" style="border-color:#37b24d"><span class="tname">Gitleaks</span><span class="tool-badge" style="background:#162316;color:#37b24d">Secrets</span></div>
               <div class="tool-item" style="border-color:#7f77dd"><span class="tname">Semgrep</span><span class="tool-badge" style="background:#2a2640;color:#7f77dd">SAST</span></div>
-              <div class="tool-item" style="border-color:#f4512c"><span class="tname">OWASP ZAP</span><span class="tool-badge" style="background:#2d1a1a;color:#f4512c">DAST</span></div>
               <div class="tool-item" style="border-color:#ff9f00"><span class="tname">DepCheck</span><span class="tool-badge" style="background:#2d2210;color:#ff9f00">SCA</span></div>
-              <div class="tool-item" style="border-color:#37b24d"><span class="tname">Nuclei</span><span class="tool-badge" style="background:#162316;color:#37b24d">DAST</span></div>
               <div class="tool-item" style="border-color:#e67e22"><span class="tname">Checkov</span><span class="tool-badge" style="background:#2a1e0e;color:#e67e22">IaC</span></div>
               <div class="tool-item" style="border-color:#4c9eff"><span class="tname">Trivy</span><span class="tool-badge" style="background:#0d1e33;color:#4c9eff">Image</span></div>
-              <div class="tool-item" style="border-color:#37b24d"><span class="tname">Gitleaks</span><span class="tool-badge" style="background:#162316;color:#37b24d">Secrets</span></div>
+              <div class="tool-item" style="border-color:#f4512c"><span class="tname">OWASP ZAP</span><span class="tool-badge" style="background:#2d1a1a;color:#f4512c">DAST</span></div>
+              <div class="tool-item" style="border-color:#37b24d"><span class="tname">Nuclei</span><span class="tool-badge" style="background:#162316;color:#37b24d">DAST</span></div>
             </div>
- 
             <div class="panel">
               <div class="panel-title">Risk score</div>
               <div style="text-align:center;padding:10px 0">
@@ -1023,19 +960,17 @@ jobs:
                 <div style="font-size:10px;color:#6c7280;margin-top:4px;text-transform:uppercase;letter-spacing:.8px">/ 100 — High Risk</div>
               </div>
               <div style="margin-top:10px">
-                <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span style="color:#6c7280">Critical CVEs</span><span style="color:#8e0000">{depcheck['critical']}</span></div>
-                <div class="bar-outer"><div class="bar-inner" style="width:{min(int(depcheck['critical']/100*100),100)}%;background:#8e0000"></div></div>
-                <div style="display:flex;justify-content:space-between;font-size:11px;margin:5px 0 3px"><span style="color:#6c7280">High alerts</span><span style="color:#f4512c">{depcheck['high'] + zap['high']}</span></div>
-                <div class="bar-outer"><div class="bar-inner" style="width:{min(int((depcheck['high']+zap['high'])/200*100),100)}%;background:#f4512c"></div></div>
-                <div style="display:flex;justify-content:space-between;font-size:11px;margin:5px 0 3px"><span style="color:#6c7280">Medium issues</span><span style="color:#ff9f00">{depcheck['medium'] + zap['medium']}</span></div>
-                <div class="bar-outer"><div class="bar-inner" style="width:{min(int((depcheck['medium']+zap['medium'])/200*100),100)}%;background:#ff9f00"></div></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span style="color:#6c7280">Critical CVEs</span><span style="color:#8e0000">{depcheck['critical'] + trivy['critical']}</span></div>
+                <div class="bar-outer"><div class="bar-inner" style="width:{min(int((depcheck['critical']+trivy['critical'])/100*100),100)}%;background:#8e0000"></div></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;margin:5px 0 3px"><span style="color:#6c7280">High alerts</span><span style="color:#f4512c">{depcheck['high'] + zap['high'] + trivy['high']}</span></div>
+                <div class="bar-outer"><div class="bar-inner" style="width:{min(int((depcheck['high']+zap['high']+trivy['high'])/200*100),100)}%;background:#f4512c"></div></div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;margin:5px 0 3px"><span style="color:#6c7280">Medium issues</span><span style="color:#ff9f00">{depcheck['medium'] + zap['medium'] + trivy['medium']}</span></div>
+                <div class="bar-outer"><div class="bar-inner" style="width:{min(int((depcheck['medium']+zap['medium']+trivy['medium'])/200*100),100)}%;background:#ff9f00"></div></div>
               </div>
             </div>
- 
           </div>
- 
+
           <div class="panels-row">
- 
             <div class="panel">
               <div class="panel-title">Semgrep — Top findings</div>
               {"".join([f'''
@@ -1044,7 +979,6 @@ jobs:
                 <span class="{r["extra"]["severity"]} sev-badge">{r["extra"]["severity"]}</span>
               </div>''' for r in semgrep["findings"]]) if semgrep["findings"] else '<div class="no-data">No findings</div>'}
             </div>
- 
             <div class="panel">
               <div class="panel-title">ZAP — Top alerts</div>
               {"".join([f'''
@@ -1053,11 +987,9 @@ jobs:
                 <span class="sev-badge" style="background:#2d1a1a;color:#f4512c">{a.get("riskdesc","?").split(" ")[0]}</span>
               </div>''' for a in zap["alerts"]]) if zap["alerts"] else '<div class="no-data">No alerts</div>'}
             </div>
- 
           </div>
- 
+
           <div class="panels-row">
- 
             <div class="panel">
               <div class="panel-title">Dependency Check — Top CVEs</div>
               {"".join([f'''
@@ -1066,7 +998,6 @@ jobs:
                 <span class="{v["severity"]} sev-badge">{v["severity"]}</span>
               </div>''' for v in depcheck["vulns"]]) if depcheck["vulns"] else '<div class="no-data">No CVEs</div>'}
             </div>
- 
             <div class="panel">
               <div class="panel-title">Checkov — Misconfigurations</div>
               {"".join([f'''
@@ -1076,13 +1007,12 @@ jobs:
                 <span style="font-size:10px;color:#6c7280">{c["file"].split("/")[-1]}</span>
               </div>''' for c in checkov["checks"]]) if checkov["checks"] else '<div class="no-data">No misconfigs</div>'}
             </div>
- 
           </div>
- 
+
           <footer>
-            VulnShop DevSecOps PFE — Generated by GitHub Actions · Semgrep · OWASP ZAP · Dependency-Check · Nuclei · Checkov · Trivy
+            VulnShop DevSecOps PFE — Generated by GitHub Actions · Gitleaks · Semgrep · OWASP ZAP · Dependency-Check · Nuclei · Checkov · Trivy
           </footer>
- 
+
           <script>
             const gOpts = {{
               responsive: true, maintainAspectRatio: false,
@@ -1092,20 +1022,18 @@ jobs:
                 y: {{ grid: {{ color: 'rgba(255,255,255,0.05)' }}, ticks: {{ color: '#6c7280', font: {{ size: 10 }} }} }}
               }}
             }};
- 
             new Chart(document.getElementById('chart1'), {{
               type: 'bar',
               data: {{
                 labels: ['Critical','High','Medium','Low','Info'],
-                datasets: [{{ 
-                  data: [{depcheck['critical']}, {zap['high']+depcheck['high']+semgrep['errors']}, {zap['medium']+depcheck['medium']+semgrep['warnings']}, {zap['low']+depcheck['low']}, {zap['info']}],
+                datasets: [{{
+                  data: [{depcheck['critical']+trivy['critical']}, {zap['high']+depcheck['high']+semgrep['errors']+trivy['high']}, {zap['medium']+depcheck['medium']+semgrep['warnings']+trivy['medium']}, {zap['low']+depcheck['low']+trivy['low']}, {zap['info']}],
                   backgroundColor: ['#8e0000','#f4512c','#ff9f00','#37b24d','#4c9eff'],
                   borderRadius: 3
                 }}]
               }},
               options: gOpts
             }});
- 
             new Chart(document.getElementById('chart2'), {{
               type: 'doughnut',
               data: {{
@@ -1118,7 +1046,6 @@ jobs:
               }},
               options: {{ responsive: true, maintainAspectRatio: false, plugins: {{ legend: {{ display: false }} }}, cutout: '68%' }}
             }});
- 
             new Chart(document.getElementById('chart3'), {{
               type: 'bar',
               data: {{
@@ -1132,17 +1059,17 @@ jobs:
               options: {{ ...gOpts, indexAxis: 'y' }}
             }});
           </script>
- 
+
           </body>
           </html>"""
- 
+
           os.makedirs("reports", exist_ok=True)
           with open("reports/security-dashboard.html", "w") as f:
               f.write(html)
- 
+
           print(f"Dashboard generated!")
           print(f"Semgrep  : {semgrep['total']} findings")
-          print(f"ZAP      : {zap['total']} findings")
+          print(f"ZAP      : {zap['total']} alerts")
           print(f"DepCheck : {depcheck['total']} CVEs")
           print(f"Nuclei   : {nuclei['total']} findings")
           print(f"Checkov  : {checkov['total']} misconfigs")
