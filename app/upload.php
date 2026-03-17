@@ -1,192 +1,105 @@
 <?php
 session_start();
 require_once 'config.php';
-
-$message = '';
-$message_type = '';
-
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['file'])) {
-    $file = $_FILES['file'];
-    $filename = $file['name'];
-    $tmp_path = $file['tmp_name'];
-
-    // Vulnérabilité : Pas de validation du type
-    if (!is_dir('uploads/')) mkdir('uploads/', 0777, true);
-    $upload_path = "uploads/" . $filename;
-
-    if (move_uploaded_file($tmp_path, $upload_path)) {
-        $message = "✅ File uploaded: " . $filename;
-        $message_type = 'success';
+$message='';$message_type='';
+if($_SERVER['REQUEST_METHOD']=='POST'&&isset($_FILES['file'])){
+    $filename=$_FILES['file']['name'];
+    // ⚠️ Unrestricted File Upload — RCE possible
+    if(!is_dir('uploads/')) mkdir('uploads/',0777,true);
+    if(move_uploaded_file($_FILES['file']['tmp_name'],"uploads/".$filename)){
+        $message="✅ Fichier uploadé : ".$filename; // ⚠️ XSS
+        $message_type='success';
     } else {
-        $message = "❌ Upload failed!";
-        $message_type = 'error';
+        $message="❌ Échec de l'upload !";
+        $message_type='error';
     }
 }
 ?>
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <title>Upload - VulnShop</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; }
-        .navbar {
-            background: linear-gradient(135deg, #1a1a2e, #16213e);
-            padding: 15px 30px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .navbar .logo { color: #e94560; font-size: 24px; font-weight: bold; text-decoration: none; }
-        .navbar .logo span { color: white; }
-        .nav-links a { color: #ccc; text-decoration: none; margin-left: 25px; }
-        .nav-links a:hover { color: #e94560; }
-
-        .container { max-width: 800px; margin: 50px auto; padding: 0 20px; }
-        .upload-card {
-            background: white;
-            border-radius: 15px;
-            padding: 40px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
-        }
-        .upload-card h2 { color: #1a1a2e; margin-bottom: 10px; }
-        .upload-card p { color: #666; margin-bottom: 30px; }
-
-        .upload-area {
-            border: 3px dashed #e94560;
-            border-radius: 10px;
-            padding: 50px;
-            text-align: center;
-            background: #fff5f5;
-            margin-bottom: 20px;
-        }
-        .upload-area p { font-size: 40px; margin-bottom: 10px; }
-        .upload-area label {
-            display: inline-block;
-            padding: 10px 25px;
-            background: #e94560;
-            color: white;
-            border-radius: 20px;
-            cursor: pointer;
-            margin-top: 10px;
-        }
-        .upload-area input[type="file"] { display: none; }
-        .file-name { color: #666; margin-top: 10px; font-size: 14px; }
-
-        .btn-upload {
-            width: 100%;
-            padding: 15px;
-            background: linear-gradient(135deg, #1a1a2e, #16213e);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            font-size: 16px;
-            cursor: pointer;
-            margin-top: 20px;
-        }
-        .btn-upload:hover { background: #e94560; }
-
-        .message {
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 14px;
-        }
-        .message.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .message.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-
-        .warning-box {
-            background: #fff3cd;
-            border: 1px solid #ffc107;
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-top: 20px;
-            font-size: 13px;
-            color: #856404;
-        }
-
-        .files-list { margin-top: 30px; }
-        .files-list h3 { color: #1a1a2e; margin-bottom: 15px; }
-        .file-item {
-            display: flex;
-            align-items: center;
-            padding: 10px 15px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            margin-bottom: 8px;
-        }
-        .file-item a { color: #e94560; text-decoration: none; margin-left: 10px; }
-
-        footer {
-            background: #1a1a2e;
-            color: #aaa;
-            text-align: center;
-            padding: 20px;
-            margin-top: 50px;
-        }
-    </style>
+<meta charset="UTF-8">
+<title>Upload — VulnShop</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--white:#fff;--off:#f7f6f3;--stone:#f0ede8;--border:#e8e4de;--border2:#d4cfc8;--ink:#1a1714;--ink2:#4a4540;--ink3:#9a9590;--gold:#c8a876;--red:#d94f3d;--green:#2e7d52;--serif:'Instrument Serif',serif;--sans:'DM Sans',sans-serif;--mono:'DM Mono',monospace}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--sans);background:var(--stone);color:var(--ink);font-size:14px;line-height:1.6;min-height:100vh}
+nav{background:rgba(255,255,255,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);height:60px;display:flex;align-items:center;padding:0 40px}
+.nav-inner{max-width:1200px;margin:0 auto;width:100%;display:flex;align-items:center;justify-content:space-between}
+.nav-logo{font-family:var(--serif);font-size:20px;color:var(--ink);text-decoration:none}
+.nav-logo span{font-style:italic;color:var(--gold)}
+.nav-links{display:flex;gap:24px;list-style:none}
+.nav-links a{font-size:13px;color:var(--ink2);text-decoration:none}.nav-links a:hover{color:var(--ink)}
+.main{max-width:680px;margin:48px auto;padding:0 24px}
+.page-title{font-family:var(--serif);font-size:36px;color:var(--ink);margin-bottom:6px;text-align:center}
+.page-sub{font-size:14px;color:var(--ink3);text-align:center;margin-bottom:32px}
+.card{background:var(--white);border:1px solid var(--border);border-radius:16px;padding:32px;margin-bottom:16px}
+.upload-area{border:2px dashed var(--border2);border-radius:12px;padding:48px 24px;text-align:center;background:var(--off);margin-bottom:20px;cursor:pointer;transition:border-color .2s}
+.upload-area:hover{border-color:var(--ink)}
+.upload-icon{font-size:40px;margin-bottom:12px}
+.upload-hint{font-size:13px;color:var(--ink3);margin-bottom:16px}
+.upload-label{display:inline-block;padding:8px 20px;background:var(--ink);color:white;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500}
+input[type=file]{display:none}
+.file-name{font-size:12px;color:var(--ink3);margin-top:10px;font-family:var(--mono)}
+.btn-upload{width:100%;padding:12px;background:var(--ink);color:white;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;font-family:var(--sans)}
+.btn-upload:hover{background:#2d2926}
+.msg{padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:16px}
+.msg.success{background:#ecfdf5;color:var(--green);border:1px solid rgba(46,125,82,.2)}
+.msg.error{background:#fceae8;color:var(--red);border:1px solid rgba(217,79,61,.2)}
+.warning-box{background:#fef9e7;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;font-size:12px;color:#92400e;margin-top:10px}
+.files-title{font-size:14px;font-weight:500;color:var(--ink);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+.file-item{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:var(--off);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:12px}
+.file-item a{color:var(--ink);text-decoration:none;font-family:var(--mono)}.file-item a:hover{text-decoration:underline}
+footer{background:var(--ink);color:rgba(255,255,255,.45);text-align:center;padding:24px;font-size:12px;margin-top:60px}
+footer span{color:var(--gold)}
+</style>
 </head>
 <body>
-
-<nav class="navbar">
-    <a class="logo" href="index.php">Vuln<span>Shop</span></a>
-    <div class="nav-links">
-        <a href="index.php">🏠 Home</a>
-        <a href="search.php">🔍 Search</a>
-        <a href="login.php">🔐 Login</a>
-    </div>
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="index.php">Vuln<span>Shop</span></a>
+    <ul class="nav-links">
+      <li><a href="index.php">Accueil</a></li>
+      <li><a href="search.php">Recherche</a></li>
+      <li><a href="login.php">Connexion</a></li>
+    </ul>
+  </div>
 </nav>
-
-<div class="container">
-    <div class="upload-card">
-        <h2>📁 File Upload</h2>
-        <p>Upload any file to our server — no restrictions!</p>
-
-        <?php if ($message): ?>
-            <div class="message <?php echo $message_type; ?>">
-                <?php echo $message; // Vulnérabilité XSS ?>
-            </div>
-        <?php endif; ?>
-
-        <!-- Vulnérabilité : Pas de token CSRF -->
-        <form method="POST" enctype="multipart/form-data">
-            <div class="upload-area">
-                <p>📂</p>
-                <p style="font-size:16px; color:#666;">Drop your file here</p>
-                <label for="fileInput">Choose File</label>
-                <input type="file" id="fileInput" name="file"
-                       onchange="document.querySelector('.file-name').textContent = this.files[0]?.name || ''">
-                <div class="file-name">No file selected</div>
-            </div>
-            <button type="submit" class="btn-upload">⬆️ Upload File</button>
-        </form>
-
-        <div class="warning-box">
-            ⚠️ <b>Vulnerability Demo:</b> This upload accepts ALL file types including
-            PHP shells (.php), scripts (.sh), and executables (.exe).
-            No validation is performed!
-        </div>
-
-        <!-- Vulnérabilité : Listage des fichiers -->
-        <?php if (is_dir('uploads/')): ?>
-        <div class="files-list">
-            <h3>📋 Uploaded Files</h3>
-            <?php foreach (scandir('uploads/') as $f): ?>
-                <?php if ($f != '.' && $f != '..'): ?>
-                    <div class="file-item">
-                        📄 <a href="uploads/<?php echo $f; ?>"><?php echo $f; ?></a>
-                    </div>
-                <?php endif; ?>
-            <?php endforeach; ?>
-        </div>
-        <?php endif; ?>
-    </div>
+<div class="main">
+  <h1 class="page-title">Upload de fichier</h1>
+  <p class="page-sub">Uploadez n'importe quel fichier — sans restrictions !</p>
+  <?php if($message): ?>
+    <div class="msg <?= $message_type ?>"><?= $message /* ⚠️ XSS */ ?></div>
+  <?php endif; ?>
+  <div class="card">
+    <form method="POST" enctype="multipart/form-data"> <!-- ⚠️ pas de CSRF -->
+      <div class="upload-area">
+        <div class="upload-icon">📂</div>
+        <div class="upload-hint">Glissez votre fichier ici ou cliquez pour sélectionner</div>
+        <label class="upload-label" for="fileInput">Choisir un fichier</label>
+        <input type="file" id="fileInput" name="file"
+               onchange="document.querySelector('.file-name').textContent=this.files[0]?.name||''">
+        <div class="file-name">Aucun fichier sélectionné</div>
+      </div>
+      <button type="submit" class="btn-upload">⬆ Uploader</button>
+    </form>
+    <div class="warning-box">⚠️ <b>Demo :</b> Accepte tous les types : .php shells, .sh scripts, .exe — RCE possible !</div>
+  </div>
+  <?php if(is_dir('uploads/')): ?>
+  <div class="card">
+    <div class="files-title">📋 Fichiers uploadés</div>
+    <?php foreach(scandir('uploads/') as $f): ?>
+      <?php if($f!='.'&&$f!='..'): ?>
+      <div class="file-item">
+        <span>📄 <a href="uploads/<?= $f ?>"><?= $f ?></a></span>
+        <span style="font-size:11px;color:var(--ink3)"><?= date('d/m/Y H:i',filemtime('uploads/'.$f)) ?></span>
+      </div>
+      <?php endif; ?>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
 </div>
-
-<footer>
-    <p>© 2026 VulnShop — DevSecOps PFE</p>
-</footer>
-
+<footer><p>© 2026 <span>VulnShop</span> — DevSecOps PFE</p></footer>
 </body>
 </html>

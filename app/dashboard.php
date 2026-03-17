@@ -1,250 +1,123 @@
 <?php
 session_start();
 require_once 'config.php';
-
-if (!isset($_SESSION['username'])) {
-    header("Location: login.php");
-    exit();
+if(!isset($_SESSION['username'])){ header("Location: login.php"); exit(); }
+$conn=getDB();
+$target_user=null;
+if(isset($_GET['user_id'])){
+    $user_id=$_GET['user_id'];
+    // ⚠️ IDOR + SQLi
+    $result=mysqli_query($conn,"SELECT * FROM users WHERE id=".$user_id);
+    $target_user=mysqli_fetch_assoc($result);
 }
-
-$conn = getDB();
-
-// Vulnérabilité : IDOR
-$target_user = null;
-if (isset($_GET['user_id'])) {
-    $user_id = $_GET['user_id'];
-    // Pas de vérification que l'ID appartient à l'utilisateur connecté
-    $query = "SELECT * FROM users WHERE id=" . $user_id;
-    $result = mysqli_query($conn, $query);
-    $target_user = mysqli_fetch_assoc($result);
-}
-
-// Récupérer le profil actuel
-$query = "SELECT * FROM users WHERE username='" . $_SESSION['username'] . "'";
-$result = mysqli_query($conn, $query);
-$current_user = mysqli_fetch_assoc($result);
+// ⚠️ SQLi
+$result=mysqli_query($conn,"SELECT * FROM users WHERE username='".$_SESSION['username']."'");
+$current_user=mysqli_fetch_assoc($result);
 ?>
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <title>Dashboard - VulnShop</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; }
-        .navbar {
-            background: linear-gradient(135deg, #1a1a2e, #16213e);
-            padding: 15px 30px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .navbar .logo { color: #e94560; font-size: 24px; font-weight: bold; text-decoration: none; }
-        .navbar .logo span { color: white; }
-        .nav-links a { color: #ccc; text-decoration: none; margin-left: 25px; }
-
-        .container { max-width: 900px; margin: 40px auto; padding: 0 20px; }
-
-        .welcome-card {
-            background: linear-gradient(135deg, #1a1a2e, #16213e);
-            color: white;
-            padding: 30px;
-            border-radius: 15px;
-            margin-bottom: 25px;
-        }
-        .welcome-card h2 { font-size: 24px; }
-        .welcome-card p { opacity: 0.7; margin-top: 5px; }
-
-        .cards-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 25px;
-        }
-        .info-card {
-            background: white;
-            border-radius: 10px;
-            padding: 25px;
-            box-shadow: 0 3px 15px rgba(0,0,0,0.1);
-        }
-        .info-card h3 {
-            color: #1a1a2e;
-            margin-bottom: 15px;
-            border-bottom: 2px solid #e94560;
-            padding-bottom: 10px;
-        }
-        .info-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #f0f0f0;
-            font-size: 14px;
-        }
-        .info-item label { color: #666; }
-        .info-item span { color: #1a1a2e; font-weight: bold; }
-        .info-item .sensitive { color: #e94560; }
-
-        .idor-card {
-            background: white;
-            border-radius: 10px;
-            padding: 25px;
-            box-shadow: 0 3px 15px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
-        .idor-card h3 {
-            color: #1a1a2e;
-            margin-bottom: 15px;
-            border-bottom: 2px solid #e94560;
-            padding-bottom: 10px;
-        }
-        .idor-form { display: flex; gap: 10px; }
-        .idor-form input {
-            flex: 1;
-            padding: 10px 15px;
-            border: 2px solid #eee;
-            border-radius: 8px;
-        }
-        .idor-form button {
-            padding: 10px 20px;
-            background: #e94560;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-        }
-        .user-data {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 15px;
-            font-size: 13px;
-        }
-
-        .danger-zone {
-            background: #fff5f5;
-            border: 2px solid #e94560;
-            border-radius: 10px;
-            padding: 25px;
-        }
-        .danger-zone h3 { color: #e94560; margin-bottom: 15px; }
-        .btn-danger {
-            padding: 10px 20px;
-            background: #e94560;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-        }
-
-        footer {
-            background: #1a1a2e;
-            color: #aaa;
-            text-align: center;
-            padding: 20px;
-            margin-top: 50px;
-        }
-    </style>
+<meta charset="UTF-8">
+<title>Dashboard — VulnShop</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--white:#fff;--off:#f7f6f3;--stone:#f0ede8;--border:#e8e4de;--border2:#d4cfc8;--ink:#1a1714;--ink2:#4a4540;--ink3:#9a9590;--gold:#c8a876;--red:#d94f3d;--green:#2e7d52;--serif:'Instrument Serif',serif;--sans:'DM Sans',sans-serif;--mono:'DM Mono',monospace}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--sans);background:var(--off);color:var(--ink);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
+nav{background:rgba(255,255,255,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);height:60px;display:flex;align-items:center;padding:0 40px}
+.nav-inner{max-width:1200px;margin:0 auto;width:100%;display:flex;align-items:center;justify-content:space-between}
+.nav-logo{font-family:var(--serif);font-size:20px;color:var(--ink);text-decoration:none}
+.nav-logo span{font-style:italic;color:var(--gold)}
+.nav-links{display:flex;gap:24px;list-style:none}
+.nav-links a{font-size:13px;color:var(--ink2);text-decoration:none}.nav-links a:hover{color:var(--ink)}
+.main{max-width:1000px;margin:40px auto;padding:0 24px;display:grid;grid-template-columns:260px 1fr;gap:20px}
+.card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:24px}
+.avatar{width:64px;height:64px;border-radius:50%;background:var(--stone);display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 14px}
+.profile-name{font-family:var(--serif);font-size:20px;color:var(--ink);text-align:center;margin-bottom:4px}
+.role-pill{display:block;text-align:center;font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;padding:3px 10px;border-radius:20px;margin:0 auto 20px;width:fit-content}
+.role-admin{background:#fef3cd;color:#92680a}
+.role-user{background:var(--off);color:var(--ink3)}
+.info-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
+.info-row:last-child{border:none}
+.info-label{color:var(--ink3)}
+.info-val{font-family:var(--mono);font-size:12px;color:var(--ink);font-weight:500}
+.info-val.sensitive{color:var(--red)}
+.section-title{font-size:15px;font-weight:500;color:var(--ink);margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.stat-item{background:var(--off);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center}
+.stat-n{font-family:var(--serif);font-size:22px;color:var(--ink);line-height:1;margin-bottom:3px}
+.stat-l{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--ink3)}
+.vuln-tag{display:inline-block;font-size:9px;font-weight:600;padding:2px 7px;border-radius:4px;background:#fff3cd;color:#92680a;margin-bottom:8px}
+.idor-form{display:flex;gap:8px;margin-bottom:10px}
+.idor-input{flex:1;padding:8px 12px;border:1px solid var(--border2);border-radius:6px;font-size:13px;font-family:var(--sans);outline:none;background:var(--off)}
+.idor-input:focus{border-color:var(--ink)}
+.idor-btn{padding:8px 16px;background:var(--ink);color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px}
+.user-data-box{background:var(--off);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:12px;font-family:var(--mono);color:var(--ink2);overflow:auto;max-height:200px}
+.danger-zone{border:1px solid rgba(217,79,61,.3);border-radius:12px;padding:20px;margin-top:20px;background:#fef9f8}
+.danger-title{font-size:14px;font-weight:500;color:var(--red);margin-bottom:12px}
+.btn-danger{padding:9px 20px;background:var(--red);color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-family:var(--sans)}
+footer{background:var(--ink);color:rgba(255,255,255,.45);text-align:center;padding:24px;font-size:12px;margin-top:60px}
+footer span{color:var(--gold)}
+</style>
 </head>
 <body>
-
-<nav class="navbar">
-    <a class="logo" href="index.php">Vuln<span>Shop</span></a>
-    <div class="nav-links">
-        <a href="index.php">🏠 Home</a>
-        <a href="search.php">🔍 Search</a>
-        <a href="login.php">🔐 Logout</a>
-    </div>
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="index.php">Vuln<span>Shop</span></a>
+    <ul class="nav-links">
+      <li><a href="index.php">Accueil</a></li>
+      <li><a href="search.php">Recherche</a></li>
+      <li><a href="login.php">Déconnexion</a></li>
+    </ul>
+  </div>
 </nav>
-
-<div class="container">
-
-    <div class="welcome-card">
-        <h2>👤 Welcome back, <?php echo $_SESSION['username']; ?>!</h2>
-        <p>Your personal dashboard — handle with care</p>
+<div class="main">
+  <div>
+    <div class="card">
+      <div class="avatar">👤</div>
+      <div class="profile-name"><?= $_SESSION['username'] /* ⚠️ XSS */ ?></div>
+      <span class="role-pill role-<?= $current_user['is_admin']?'admin':'user' ?>">
+        <?= $current_user['is_admin']?'Administrateur':'Utilisateur' ?>
+      </span>
+      <?php if($current_user): ?>
+      <div class="info-row"><span class="info-label">Username</span><span class="info-val"><?= $current_user['username'] ?></span></div>
+      <div class="info-row"><span class="info-label">Email</span><span class="info-val"><?= $current_user['email'] ?></span></div>
+      <div class="info-row"><span class="info-label">Password</span><span class="info-val sensitive"><?= $current_user['password'] /* ⚠️ mot de passe en clair */ ?></span></div>
+      <div class="info-row"><span class="info-label">Admin</span><span class="info-val"><?= $current_user['is_admin']?'✅':'❌' ?></span></div>
+      <?php endif; ?>
     </div>
-
-    <div class="cards-grid">
-        <div class="info-card">
-            <h3>👤 Profile Information</h3>
-            <?php if ($current_user): ?>
-                <div class="info-item">
-                    <label>Username</label>
-                    <span><?php echo $current_user['username']; ?></span>
-                </div>
-                <div class="info-item">
-                    <label>Email</label>
-                    <span><?php echo $current_user['email']; ?></span>
-                </div>
-                <!-- Vulnérabilité : Affichage du mot de passe -->
-                <div class="info-item">
-                    <label>Password</label>
-                    <span class="sensitive"><?php echo $current_user['password']; ?></span>
-                </div>
-                <div class="info-item">
-                    <label>Admin</label>
-                    <span><?php echo $current_user['is_admin'] ? '✅ Yes' : '❌ No'; ?></span>
-                </div>
-            <?php endif; ?>
-        </div>
-
-        <div class="info-card">
-            <h3>📊 Account Stats</h3>
-            <div class="info-item">
-                <label>Orders</label>
-                <span>12</span>
-            </div>
-            <div class="info-item">
-                <label>Wishlist</label>
-                <span>5 items</span>
-            </div>
-            <div class="info-item">
-                <label>Total Spent</label>
-                <span>$2,450.00</span>
-            </div>
-            <div class="info-item">
-                <label>Member Since</label>
-                <span>2023</span>
-            </div>
-        </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div class="card">
+      <div class="section-title">Statistiques</div>
+      <div class="stat-grid">
+        <div class="stat-item"><div class="stat-n">12</div><div class="stat-l">Commandes</div></div>
+        <div class="stat-item"><div class="stat-n">5</div><div class="stat-l">Favoris</div></div>
+        <div class="stat-item"><div class="stat-n">$2 450</div><div class="stat-l">Total dépensé</div></div>
+        <div class="stat-item"><div class="stat-n">2023</div><div class="stat-l">Membre depuis</div></div>
+      </div>
     </div>
-
-    <!-- IDOR Demo -->
-    <div class="idor-card">
-        <h3>🔍 View User Profile (IDOR Vulnerability)</h3>
-        <p style="color:#666; font-size:14px; margin-bottom:15px;">
-            ⚠️ Try changing the user ID to access other users' data!
-        </p>
-        <form method="GET" class="idor-form">
-            <input type="number" name="user_id"
-                   value="<?php echo $_GET['user_id'] ?? '1'; ?>"
-                   placeholder="User ID">
-            <button type="submit">View Profile</button>
-        </form>
-
-        <?php if ($target_user): ?>
-            <div class="user-data">
-                <!-- Vulnérabilité : IDOR + XSS -->
-                <pre><?php echo print_r($target_user, true); ?></pre>
-            </div>
-        <?php endif; ?>
+    <div class="card">
+      <div class="section-title">Voir un profil utilisateur</div>
+      <span class="vuln-tag">⚠️ IDOR Vulnerability</span>
+      <p style="font-size:12px;color:var(--ink3);margin-bottom:10px">Changez l'ID pour accéder aux données d'autres utilisateurs !</p>
+      <form method="GET" class="idor-form">
+        <input class="idor-input" type="number" name="user_id" value="<?= $_GET['user_id']??1 ?>" placeholder="User ID">
+        <button type="submit" class="idor-btn">Voir</button>
+      </form>
+      <?php if($target_user): ?>
+      <div class="user-data-box"><?= print_r($target_user,true) /* ⚠️ IDOR + XSS */ ?></div>
+      <?php endif; ?>
     </div>
-
-    <!-- Danger Zone -->
     <div class="danger-zone">
-        <h3>⚠️ Danger Zone</h3>
-        <!-- Vulnérabilité : CSRF - pas de token -->
-        <form method="POST" action="delete_account.php">
-            <input type="hidden" name="user_id"
-                   value="<?php echo $current_user['id'] ?? 1; ?>">
-            <button type="submit" class="btn-danger">🗑️ Delete Account</button>
-        </form>
+      <div class="danger-title">⚠️ Zone dangereuse</div>
+      <form method="POST" action="delete_account.php"> <!-- ⚠️ CSRF -->
+        <input type="hidden" name="user_id" value="<?= $current_user['id']??1 ?>">
+        <button type="submit" class="btn-danger" onclick="return confirm('Supprimer ?')">🗑 Supprimer le compte</button>
+      </form>
     </div>
-
+  </div>
 </div>
-
-<footer>
-    <p>© 2026 VulnShop — DevSecOps PFE</p>
-</footer>
-
+<footer><p>© 2026 <span>VulnShop</span> — DevSecOps PFE</p></footer>
 </body>
 </html>
