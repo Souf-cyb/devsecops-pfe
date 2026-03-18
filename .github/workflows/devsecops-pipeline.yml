@@ -54,6 +54,8 @@ jobs:
             --config p/owasp-top-ten \
             --config p/php \
             --exclude app/secure \
+            --exclude app/assets \
+            --exclude app/uploads \
             --json > reports/semgrep-report.json || true
         continue-on-error: true
 

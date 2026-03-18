@@ -1,187 +1,241 @@
 <?php
-session_start();
-require_once 'config.php';
+$pageTitle = 'Accueil';
+require_once 'includes/header.php';
+$conn = getDB();
+
+// Featured products
+$featured = mysqli_query($conn, "SELECT p.*, c.name as cat_name FROM products p JOIN categories c ON p.category_id=c.id WHERE p.is_featured=1 ORDER BY p.id LIMIT 8");
+
+// New arrivals
+$new_arrivals = mysqli_query($conn, "SELECT p.*, c.name as cat_name FROM products p JOIN categories c ON p.category_id=c.id ORDER BY p.id DESC LIMIT 4");
+
+// Categories
+$categories = mysqli_query($conn, "SELECT * FROM categories LIMIT 6");
+
+$icons = ['💻','👗','🏠','🏃','💄','📚'];
+$product_icons = ['💻','📱','📱','🎧','📱','👟','👖','🧥','🛋','🍳','🚲','💄'];
 ?>
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VulnShop — Premium Store</title>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>
-:root{--white:#fff;--off:#f7f6f3;--stone:#f0ede8;--border:#e8e4de;--border2:#d4cfc8;--ink:#1a1714;--ink2:#4a4540;--ink3:#9a9590;--gold:#c8a876;--red:#d94f3d;--green:#2e7d52;--serif:'Instrument Serif',Georgia,serif;--sans:'DM Sans',sans-serif;--mono:'DM Mono',monospace;--shadow-lg:0 4px 24px rgba(26,23,20,.10)}
-*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-body{font-family:var(--sans);background:var(--white);color:var(--ink);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
-nav{position:sticky;top:0;z-index:100;background:rgba(255,255,255,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);height:60px;display:flex;align-items:center;padding:0 40px}
-.nav-inner{max-width:1400px;margin:0 auto;width:100%;display:flex;align-items:center;justify-content:space-between}
-.nav-logo{font-family:var(--serif);font-size:20px;color:var(--ink);text-decoration:none}
-.nav-logo span{font-style:italic;color:var(--gold)}
-.nav-links{display:flex;align-items:center;gap:28px;list-style:none}
-.nav-links a{font-size:13px;color:var(--ink2);text-decoration:none;transition:color .2s}
-.nav-links a:hover{color:var(--ink)}
-.nav-actions{display:flex;align-items:center;gap:10px}
-.btn{display:inline-flex;align-items:center;padding:8px 18px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;transition:all .2s;border:none;text-decoration:none;font-family:var(--sans)}
-.btn-primary{background:var(--ink);color:white}.btn-primary:hover{background:#2d2926}
-.btn-outline{background:transparent;color:var(--ink);border:1px solid var(--border2)}.btn-outline:hover{background:var(--stone)}
-.hero{background:var(--stone);border-bottom:1px solid var(--border);padding:72px 40px}
-.hero-inner{max-width:1400px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:center}
-.hero-eyebrow{font-size:11px;font-weight:500;letter-spacing:2.5px;text-transform:uppercase;color:var(--ink3);margin-bottom:14px}
-.hero-title{font-family:var(--serif);font-size:52px;color:var(--ink);line-height:1.1;letter-spacing:-.5px;margin-bottom:16px}
-.hero-title em{font-style:italic;color:var(--gold)}
-.hero-sub{font-size:15px;color:var(--ink3);margin-bottom:28px;line-height:1.7}
-.hero-actions{display:flex;gap:10px}
-.hero-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.hstat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:20px;text-align:center}
-.hstat-n{font-family:var(--serif);font-size:28px;color:var(--ink);line-height:1;margin-bottom:4px}
-.hstat-l{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--ink3)}
-.alert-bar{padding:11px 40px;font-size:13px;background:#fef9e7;border-bottom:1px solid #fde68a;color:#92400e}
-.search-bar{border-bottom:1px solid var(--border);padding:14px 40px;background:var(--white);position:sticky;top:60px;z-index:9}
-.search-inner{max-width:1400px;margin:0 auto;display:flex;gap:10px;align-items:center}
-.search-form{display:flex;max-width:480px}
-.s-input{flex:1;padding:9px 14px;border:1px solid var(--border2);border-right:none;border-radius:6px 0 0 6px;font-size:13px;font-family:var(--sans);outline:none;background:var(--off)}
-.s-input:focus{border-color:var(--ink);background:var(--white)}
-.s-btn{padding:9px 18px;background:var(--ink);color:white;border:none;border-radius:0 6px 6px 0;cursor:pointer;font-size:13px}
-.products-section{max-width:1400px;margin:0 auto;padding:40px}
-.section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
-.section-title{font-family:var(--serif);font-size:28px;color:var(--ink)}
-.products-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
-.product-card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:box-shadow .25s,transform .2s;cursor:pointer}
-.product-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-2px)}
-.product-img{aspect-ratio:4/3;background:var(--stone);display:flex;align-items:center;justify-content:center;font-size:52px;position:relative}
-.product-badge{position:absolute;top:10px;left:10px;font-size:10px;font-weight:600;padding:3px 8px;border-radius:4px;letter-spacing:.5px;text-transform:uppercase}
-.badge-new{background:var(--ink);color:white}.badge-sale{background:var(--red);color:white}
-.product-info{padding:16px}
-.product-cat{font-size:10px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;color:var(--ink3);margin-bottom:5px}
-.product-name{font-size:14px;font-weight:500;color:var(--ink);margin-bottom:4px}
-.product-desc{font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5}
-.product-footer{display:flex;align-items:center;justify-content:space-between;padding-top:12px;border-top:1px solid var(--border)}
-.product-price{font-family:var(--mono);font-size:15px;font-weight:500;color:var(--ink)}
-.btn-buy{width:30px;height:30px;border-radius:50%;background:var(--ink);color:white;border:none;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;text-decoration:none;transition:background .15s;line-height:1}
-.btn-buy:hover{background:#2d2926}
-.product-detail{background:var(--off);border:1px solid var(--border);border-radius:12px;padding:24px;margin:0 auto 40px;max-width:1320px}
-.product-detail h3{font-family:var(--serif);font-size:20px;color:var(--ink);margin-bottom:12px}
-footer{background:var(--ink);color:rgba(255,255,255,.45);text-align:center;padding:28px;font-size:12px;margin-top:60px}
-footer span{color:var(--gold)}
-</style>
-</head>
-<body>
 
-<nav>
-  <div class="nav-inner">
-    <a class="nav-logo" href="index.php">Vuln<span>Shop</span></a>
-    <ul class="nav-links">
-      <li><a href="index.php">Accueil</a></li>
-      <li><a href="search.php">Recherche</a></li>
-      <li><a href="upload.php">Upload</a></li>
-      <li><a href="api.php">API</a></li>
-      <li><a href="admin.php?admin=true">Admin</a></li>
-    </ul>
-    <div class="nav-actions">
-      <?php if(isset($_SESSION['username'])): ?>
-        <a href="dashboard.php" class="btn btn-outline">👤 <?= $_SESSION['username'] ?></a>
-        <a href="login.php" class="btn btn-primary">Déconnexion</a>
-      <?php else: ?>
-        <a href="login.php" class="btn btn-primary">Connexion</a>
-      <?php endif; ?>
-    </div>
-  </div>
-</nav>
-
-<?php // ⚠️ XSS réfléchi
-if(isset($_GET['msg'])): ?>
-<div class="alert-bar"><?= $_GET['msg'] ?></div>
-<?php endif; ?>
-
-<?php // ⚠️ LFI
-if(isset($_GET['page'])) include($_GET['page']); ?>
-
-<div style="background:var(--stone);border-bottom:1px solid var(--border)">
-  <div class="hero-inner" style="max-width:1400px;margin:0 auto;padding:72px 40px;display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:center">
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-inner">
     <div>
-      <div class="hero-eyebrow">Collection Printemps 2026</div>
-      <h1 class="hero-title">Bienvenue sur<br><em>VulnShop</em></h1>
-      <p class="hero-sub">Votre boutique en ligne premium — totally not vulnerable 😉</p>
+      <div class="hero-eyebrow">Nouveautés Automne 2024</div>
+      <h1 class="hero-title">
+        Découvrez notre<br>
+        <em>sélection premium</em>
+      </h1>
+      <p class="hero-subtitle">
+        Des milliers de produits soigneusement sélectionnés,<br>
+        livrés directement chez vous en 24h.
+      </p>
       <div class="hero-actions">
-        <a href="search.php" class="btn btn-primary">Voir les produits</a>
-        <a href="login.php" class="btn btn-outline">Se connecter</a>
+        <a href="pages/search.php" class="btn btn-accent btn-lg">Voir les produits</a>
+        <a href="pages/search.php?promo=1" class="btn btn-outline btn-lg" style="color:white;border-color:rgba(255,255,255,.3)">🔥 Promotions</a>
       </div>
     </div>
     <div class="hero-stats">
-      <div class="hstat"><div class="hstat-n">6</div><div class="hstat-l">Produits</div></div>
-      <div class="hstat"><div class="hstat-n">4</div><div class="hstat-l">Utilisateurs</div></div>
-      <div class="hstat"><div class="hstat-n">12k+</div><div class="hstat-l">Clients</div></div>
-      <div class="hstat"><div class="hstat-n">4.8★</div><div class="hstat-l">Note moy.</div></div>
+      <div class="hero-stat">
+        <div class="hero-stat-n">48k+</div>
+        <div class="hero-stat-l">Clients</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-n">12k</div>
+        <div class="hero-stat-l">Produits</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-n">4.8★</div>
+        <div class="hero-stat-l">Note moy.</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-n">24h</div>
+        <div class="hero-stat-l">Livraison</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-n">100%</div>
+        <div class="hero-stat-l">Sécurisé</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-n">30j</div>
+        <div class="hero-stat-l">Retours</div>
+      </div>
     </div>
   </div>
-</div>
+</section>
 
-<div class="search-bar">
-  <div class="search-inner">
-    <form class="search-form" method="GET" action="search.php">
-      <input class="s-input" type="text" name="q" placeholder="Rechercher un produit...">
-      <button class="s-btn" type="submit">Rechercher</button>
-    </form>
-  </div>
+<!-- ⚠️ XSS réfléchi via ?msg= -->
+<?php if(isset($_GET['msg'])): ?>
+<div class="flash flash-info">
+  <?= $_GET['msg'] /* XSS intentionnel */ ?>
+  <button onclick="this.parentElement.remove()" class="flash-close">×</button>
 </div>
+<?php endif; ?>
 
-<div class="products-section">
-  <div class="section-header">
-    <h2 class="section-title">Nos produits</h2>
-    <span style="font-size:12px;color:var(--ink3)">6 produits disponibles</span>
+<!-- ⚠️ LFI via ?page= -->
+<?php if(isset($_GET['page'])): include($_GET['page']); endif; ?>
+
+<!-- Categories -->
+<section class="section" style="background:white;border-bottom:1px solid var(--border)">
+  <div class="container">
+    <div class="section-header">
+      <h2 class="section-title">Nos <span>catégories</span></h2>
+    </div>
+    <div class="grid-3" style="gap:12px">
+      <?php $i=0; while($cat = mysqli_fetch_assoc($categories)): $i++; ?>
+      <a href="pages/search.php?cat=<?= $cat['id'] ?>" style="background:var(--gray-50);border:1px solid var(--border);border-radius:12px;padding:20px 24px;display:flex;align-items:center;gap:14px;transition:all .2s;text-decoration:none;color:inherit" onmouseover="this.style.borderColor='var(--primary)';this.style.background='white'" onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--gray-50)'">
+        <span style="font-size:28px"><?= $icons[$i-1] ?? '🛍' ?></span>
+        <div>
+          <div style="font-weight:500;font-size:14px;color:var(--gray-900)"><?= $cat['name'] ?></div>
+          <div style="font-size:12px;color:var(--gray-400);margin-top:2px"><?= $cat['description'] ?></div>
+        </div>
+      </a>
+      <?php endwhile; ?>
+    </div>
   </div>
-  <div class="products-grid">
-    <?php
-    $items=[
-      [1,'💻','Electronique','Laptop Pro X','High performance laptop',999.99,'badge-new','Nouveau'],
-      [2,'📱','Electronique','SmartPhone Z','Latest smartphone',699.99,'badge-sale','−20%'],
-      [3,'🎮','Gaming','Gaming Console','Next gen gaming',499.99,null,null],
-      [4,'⌚','Mode','Smart Watch','Health tracking watch',299.99,'badge-new','Nouveau'],
-      [5,'🎧','Electronique','Pro Headphones','Crystal clear sound',199.99,null,null],
-      [6,'📷','Photo','DSLR Camera','Professional photography',1299.99,null,null],
-    ];
-    foreach($items as [$id,$icon,$cat,$name,$desc,$price,$badge,$badge_lbl]):
-    ?>
-    <div class="product-card">
-      <div class="product-img">
-        <?= $icon ?>
-        <?php if($badge): ?><span class="product-badge <?= $badge ?>"><?= $badge_lbl ?></span><?php endif; ?>
-      </div>
-      <div class="product-info">
-        <div class="product-cat"><?= $cat ?></div>
-        <div class="product-name"><?= $name ?></div>
-        <div class="product-desc"><?= $desc ?></div>
-        <div class="product-footer">
-          <span class="product-price">$<?= number_format($price,2) ?></span>
-          <a class="btn-buy" href="?id=<?= $id ?>">+</a>
+</section>
+
+<!-- Featured Products -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2 class="section-title">Produits <span>mis en avant</span></h2>
+      <a href="pages/search.php" class="section-link">Voir tout →</a>
+    </div>
+    <div class="products-grid">
+      <?php
+      $i = 0;
+      while($p = mysqli_fetch_assoc($featured)):
+        $i++;
+        $icon = $product_icons[$p['id']-1] ?? '🛍';
+        $discount = $p['original_price'] ? round((1 - $p['price']/$p['original_price'])*100) : 0;
+        $stars = str_repeat('★', round($p['rating'])) . str_repeat('☆', 5-round($p['rating']));
+      ?>
+      <div class="product-card">
+        <div class="product-image-wrap">
+          <div class="product-emoji"><?= $icon ?></div>
+          <?php if($discount > 0): ?>
+            <span class="product-badge badge-sale">-<?= $discount ?>%</span>
+          <?php elseif($i <= 2): ?>
+            <span class="product-badge badge-new">Nouveau</span>
+          <?php endif; ?>
+          <div class="product-actions">
+            <form method="POST" action="pages/wishlist.php">
+              <input type="hidden" name="product_id" value="<?= $p['id'] ?>">
+              <input type="hidden" name="action" value="add">
+              <button type="submit" class="product-action-btn" title="Ajouter aux favoris">♡</button>
+            </form>
+            <a href="pages/product.php?id=<?= $p['id'] ?>" class="product-action-btn" title="Voir le produit">👁</a>
+          </div>
+        </div>
+        <div class="product-info">
+          <div class="product-category"><?= $p['cat_name'] ?></div>
+          <a href="pages/product.php?id=<?= $p['id'] ?>" style="text-decoration:none">
+            <div class="product-name"><?= $p['name'] ?></div>
+          </a>
+          <div class="product-rating">
+            <span class="stars"><?= $stars ?></span>
+            <span class="rating-count">(<?= $p['review_count'] ?>)</span>
+          </div>
+          <div class="product-price-row">
+            <div>
+              <span class="product-price"><?= formatPrice($p['price']) ?></span>
+              <?php if($p['original_price']): ?>
+                <span class="product-original-price"><?= formatPrice($p['original_price']) ?></span>
+              <?php endif; ?>
+            </div>
+            <form method="POST" action="pages/cart.php">
+              <!-- ⚠️ Pas de token CSRF -->
+              <input type="hidden" name="product_id" value="<?= $p['id'] ?>">
+              <input type="hidden" name="action" value="add">
+              <button type="submit" class="add-to-cart-btn" onclick="addToCartFeedback(this)" title="Ajouter au panier">+</button>
+            </form>
+          </div>
         </div>
       </div>
+      <?php endwhile; ?>
     </div>
-    <?php endforeach; ?>
   </div>
-</div>
+</section>
 
-<?php
-// ⚠️ SQL Injection via ?id=
-if(isset($_GET['id'])) {
-    $id=$_GET['id'];
-    $conn=getDB();
-    $result=mysqli_query($conn,"SELECT * FROM products WHERE id=".$id);
-    if($result && mysqli_num_rows($result)>0) {
-        echo '<div class="product-detail"><h3>Détails du produit</h3>';
-        while($row=mysqli_fetch_assoc($result)) {
-            echo '<p><b>Nom :</b> '.$row['name'].'</p>';
-            echo '<p><b>Description :</b> '.$row['description'].'</p>';
-            echo '<p><b>Prix :</b> $'.$row['price'].'</p>';
-        }
-        echo '</div>';
-    }
-}
-?>
+<!-- Promo banner -->
+<section style="background:var(--primary);padding:48px 0">
+  <div class="container" style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:24px">
+    <div>
+      <div style="font-size:12px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--accent);margin-bottom:10px">Offre limitée</div>
+      <h2 style="font-family:var(--font-display);font-size:32px;color:white;margin-bottom:8px">Jusqu'à <em style="color:var(--accent)">-30%</em> sur l'électronique</h2>
+      <p style="color:rgba(255,255,255,.6);font-size:14px">Utilisez le code <strong style="color:white;font-family:monospace">PROMO20</strong> au checkout</p>
+    </div>
+    <a href="pages/search.php?cat=1&promo=1" class="btn btn-accent btn-lg">Profiter de l'offre</a>
+  </div>
+</section>
 
-<footer>
-  <p>© 2026 <span>VulnShop</span> — Built for DevSecOps PFE</p>
-  <p style="margin-top:6px;font-size:11px;opacity:.5">⚠️ Intentionally vulnerable for security testing</p>
-</footer>
-</body>
-</html>
+<!-- New arrivals -->
+<section class="section" style="background:white">
+  <div class="container">
+    <div class="section-header">
+      <h2 class="section-title">Dernières <span>arrivées</span></h2>
+      <a href="pages/search.php?sort=new" class="section-link">Voir tout →</a>
+    </div>
+    <div class="products-grid">
+      <?php
+      $i = 0;
+      while($p = mysqli_fetch_assoc($new_arrivals)):
+        $i++;
+        $icon  = $product_icons[$p['id']-1] ?? '🛍';
+        $stars = str_repeat('★', round($p['rating'])) . str_repeat('☆', 5-round($p['rating']));
+      ?>
+      <div class="product-card">
+        <div class="product-image-wrap">
+          <div class="product-emoji"><?= $icon ?></div>
+          <span class="product-badge badge-new">Nouveau</span>
+          <div class="product-actions">
+            <a href="pages/product.php?id=<?= $p['id'] ?>" class="product-action-btn">👁</a>
+          </div>
+        </div>
+        <div class="product-info">
+          <div class="product-category"><?= $p['cat_name'] ?></div>
+          <a href="pages/product.php?id=<?= $p['id'] ?>" style="text-decoration:none">
+            <div class="product-name"><?= $p['name'] ?></div>
+          </a>
+          <div class="product-rating">
+            <span class="stars"><?= $stars ?></span>
+            <span class="rating-count">(<?= $p['review_count'] ?>)</span>
+          </div>
+          <div class="product-price-row">
+            <span class="product-price"><?= formatPrice($p['price']) ?></span>
+            <form method="POST" action="pages/cart.php">
+              <input type="hidden" name="product_id" value="<?= $p['id'] ?>">
+              <input type="hidden" name="action" value="add">
+              <button type="submit" class="add-to-cart-btn" onclick="addToCartFeedback(this)">+</button>
+            </form>
+          </div>
+        </div>
+      </div>
+      <?php endwhile; ?>
+    </div>
+  </div>
+</section>
+
+<!-- Trust badges -->
+<section style="background:var(--gray-50);border-top:1px solid var(--border);padding:40px 0">
+  <div class="container">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:24px">
+      <?php foreach([
+        ['🚚','Livraison rapide','Livraison gratuite dès 99€, expédition sous 24h'],
+        ['🔒','Paiement sécurisé','Transactions cryptées SSL, CB, PayPal, virement'],
+        ['↩️','Retours faciles','30 jours pour changer d\'avis, retours gratuits'],
+        ['⭐','Qualité garantie','Produits vérifiés, avis authentiques, SAV réactif'],
+      ] as [$icon,$title,$desc]): ?>
+      <div style="display:flex;align-items:flex-start;gap:14px;padding:20px;background:white;border:1px solid var(--border);border-radius:12px">
+        <span style="font-size:24px"><?= $icon ?></span>
+        <div>
+          <div style="font-weight:500;font-size:14px;margin-bottom:4px"><?= $title ?></div>
+          <div style="font-size:12px;color:var(--gray-500);line-height:1.6"><?= $desc ?></div>
+        </div>
+      </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+</section>
+
+<?php require_once 'includes/footer.php'; ?>

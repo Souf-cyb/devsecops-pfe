@@ -1,7 +1,5 @@
 version: '3.8'
-
 services:
-
   vulnshop:
     build: ./app
     ports:
@@ -16,7 +14,6 @@ services:
         condition: service_healthy
     networks:
       - vulnnet
-
   mysql:
     image: mysql:5.7
     environment:
@@ -31,7 +28,6 @@ services:
       retries: 5
     networks:
       - vulnnet
-
 networks:
   vulnnet:
     driver: bridge
