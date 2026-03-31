@@ -1,16 +1,12 @@
 {
   "name": "devsecops/vulnshop",
-  "description": "Application e-commerce intentionnellement vulnérable — PFE DevSecOps 2024",
-  "version": "2.1.0",
+  "description": "Application e-commerce vulnérable pour PFE DevSecOps",
   "require": {
     "phpmailer/phpmailer": "5.2.14",
     "guzzlehttp/guzzle": "6.2.0",
     "symfony/http-foundation": "3.4.0",
     "monolog/monolog": "1.10.0",
-    "swiftmailer/swiftmailer": "5.4.0",
-    "twig/twig": "1.38.0",
-    "doctrine/dbal": "2.5.0",
-    "league/flysystem": "1.0.0"
+    "swiftmailer/swiftmailer": "5.4.0"
   },
   "config": {
     "audit": {

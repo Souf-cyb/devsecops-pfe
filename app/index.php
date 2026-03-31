@@ -1,241 +1,267 @@
 <?php
-$pageTitle = 'Accueil';
-require_once 'includes/header.php';
-$conn = getDB();
-
-// Featured products
-$featured = mysqli_query($conn, "SELECT p.*, c.name as cat_name FROM products p JOIN categories c ON p.category_id=c.id WHERE p.is_featured=1 ORDER BY p.id LIMIT 8");
-
-// New arrivals
-$new_arrivals = mysqli_query($conn, "SELECT p.*, c.name as cat_name FROM products p JOIN categories c ON p.category_id=c.id ORDER BY p.id DESC LIMIT 4");
-
-// Categories
-$categories = mysqli_query($conn, "SELECT * FROM categories LIMIT 6");
-
-$icons = ['💻','👗','🏠','🏃','💄','📚'];
-$product_icons = ['💻','📱','📱','🎧','📱','👟','👖','🧥','🛋','🍳','🚲','💄'];
+session_start();
+require_once 'config.php';
 ?>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VulnShop - Online Store</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; }
 
-<!-- Hero -->
-<section class="hero">
-  <div class="hero-inner">
-    <div>
-      <div class="hero-eyebrow">Nouveautés Automne 2024</div>
-      <h1 class="hero-title">
-        Découvrez notre<br>
-        <em>sélection premium</em>
-      </h1>
-      <p class="hero-subtitle">
-        Des milliers de produits soigneusement sélectionnés,<br>
-        livrés directement chez vous en 24h.
-      </p>
-      <div class="hero-actions">
-        <a href="pages/search.php" class="btn btn-accent btn-lg">Voir les produits</a>
-        <a href="pages/search.php?promo=1" class="btn btn-outline btn-lg" style="color:white;border-color:rgba(255,255,255,.3)">🔥 Promotions</a>
-      </div>
-    </div>
-    <div class="hero-stats">
-      <div class="hero-stat">
-        <div class="hero-stat-n">48k+</div>
-        <div class="hero-stat-l">Clients</div>
-      </div>
-      <div class="hero-stat">
-        <div class="hero-stat-n">12k</div>
-        <div class="hero-stat-l">Produits</div>
-      </div>
-      <div class="hero-stat">
-        <div class="hero-stat-n">4.8★</div>
-        <div class="hero-stat-l">Note moy.</div>
-      </div>
-      <div class="hero-stat">
-        <div class="hero-stat-n">24h</div>
-        <div class="hero-stat-l">Livraison</div>
-      </div>
-      <div class="hero-stat">
-        <div class="hero-stat-n">100%</div>
-        <div class="hero-stat-l">Sécurisé</div>
-      </div>
-      <div class="hero-stat">
-        <div class="hero-stat-n">30j</div>
-        <div class="hero-stat-l">Retours</div>
-      </div>
-    </div>
-  </div>
-</section>
+        /* NAVBAR */
+        .navbar {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        .navbar .logo {
+            color: #e94560;
+            font-size: 24px;
+            font-weight: bold;
+            text-decoration: none;
+        }
+        .navbar .logo span { color: white; }
+        .nav-links a {
+            color: #ccc;
+            text-decoration: none;
+            margin-left: 25px;
+            font-size: 14px;
+            transition: color 0.3s;
+        }
+        .nav-links a:hover { color: #e94560; }
 
-<!-- ⚠️ XSS réfléchi via ?msg= -->
-<?php if(isset($_GET['msg'])): ?>
-<div class="flash flash-info">
-  <?= $_GET['msg'] /* XSS intentionnel */ ?>
-  <button onclick="this.parentElement.remove()" class="flash-close">×</button>
+        /* HERO */
+        .hero {
+            background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
+            color: white;
+            padding: 80px 30px;
+            text-align: center;
+        }
+        .hero h1 { font-size: 48px; margin-bottom: 15px; }
+        .hero h1 span { color: #e94560; }
+        .hero p { font-size: 18px; color: #aaa; margin-bottom: 30px; }
+        .hero .btn {
+            background: #e94560;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: transform 0.3s;
+        }
+        .hero .btn:hover { transform: scale(1.05); }
+
+        /* ALERT */
+        .alert {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 12px 20px;
+            margin: 20px 30px;
+            border-radius: 5px;
+            color: #856404;
+        }
+
+        /* PRODUCTS */
+        .section { padding: 50px 30px; }
+        .section h2 {
+            font-size: 28px;
+            margin-bottom: 30px;
+            color: #1a1a2e;
+            border-left: 4px solid #e94560;
+            padding-left: 15px;
+        }
+        .products-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 25px;
+        }
+        .product-card {
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 3px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
+        }
+        .product-card:hover { transform: translateY(-5px); }
+        .product-card .product-img {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            height: 180px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 60px;
+        }
+        .product-card .product-info { padding: 20px; }
+        .product-card h3 { font-size: 18px; margin-bottom: 8px; color: #1a1a2e; }
+        .product-card p { color: #666; font-size: 14px; margin-bottom: 15px; }
+        .product-card .price { color: #e94560; font-size: 20px; font-weight: bold; }
+        .product-card .btn-buy {
+            background: #1a1a2e;
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+            text-decoration: none;
+            display: inline-block;
+            transition: background 0.3s;
+        }
+        .product-card .btn-buy:hover { background: #e94560; }
+
+        /* FOOTER */
+        footer {
+            background: #1a1a2e;
+            color: #aaa;
+            text-align: center;
+            padding: 30px;
+            margin-top: 50px;
+        }
+        footer span { color: #e94560; }
+    </style>
+</head>
+<body>
+
+<!-- NAVBAR -->
+<nav class="navbar">
+    <a class="logo" href="index.php">Vuln<span>Shop</span></a>
+    <div class="nav-links">
+        <a href="index.php">🏠 Home</a>
+        <a href="search.php">🔍 Search</a>
+        <a href="upload.php">📁 Upload</a>
+        <a href="admin.php?admin=true">⚙️ Admin</a>
+        <a href="api.php">🔌 API</a>
+        <?php if(isset($_SESSION['username'])): ?>
+            <a href="dashboard.php">👤 <?php echo $_SESSION['username']; ?></a>
+        <?php else: ?>
+            <a href="login.php">🔐 Login</a>
+        <?php endif; ?>
+    </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+    <h1>Welcome to <span>VulnShop</span></h1>
+    <p>Your favorite online store — totally not vulnerable 😉</p>
+    <a href="search.php" class="btn">Shop Now</a>
 </div>
+
+<!-- ALERT XSS -->
+<?php if (isset($_GET['msg'])): ?>
+    <div class="alert">
+        <?php echo $_GET['msg']; // Vulnérabilité XSS intentionnelle ?>
+    </div>
 <?php endif; ?>
 
-<!-- ⚠️ LFI via ?page= -->
-<?php if(isset($_GET['page'])): include($_GET['page']); endif; ?>
+<!-- LFI -->
+<?php if (isset($_GET['page'])): ?>
+    <?php include($_GET['page']); // Vulnérabilité LFI intentionnelle ?>
+<?php endif; ?>
 
-<!-- Categories -->
-<section class="section" style="background:white;border-bottom:1px solid var(--border)">
-  <div class="container">
-    <div class="section-header">
-      <h2 class="section-title">Nos <span>catégories</span></h2>
-    </div>
-    <div class="grid-3" style="gap:12px">
-      <?php $i=0; while($cat = mysqli_fetch_assoc($categories)): $i++; ?>
-      <a href="pages/search.php?cat=<?= $cat['id'] ?>" style="background:var(--gray-50);border:1px solid var(--border);border-radius:12px;padding:20px 24px;display:flex;align-items:center;gap:14px;transition:all .2s;text-decoration:none;color:inherit" onmouseover="this.style.borderColor='var(--primary)';this.style.background='white'" onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--gray-50)'">
-        <span style="font-size:28px"><?= $icons[$i-1] ?? '🛍' ?></span>
-        <div>
-          <div style="font-weight:500;font-size:14px;color:var(--gray-900)"><?= $cat['name'] ?></div>
-          <div style="font-size:12px;color:var(--gray-400);margin-top:2px"><?= $cat['description'] ?></div>
-        </div>
-      </a>
-      <?php endwhile; ?>
-    </div>
-  </div>
-</section>
-
-<!-- Featured Products -->
-<section class="section">
-  <div class="container">
-    <div class="section-header">
-      <h2 class="section-title">Produits <span>mis en avant</span></h2>
-      <a href="pages/search.php" class="section-link">Voir tout →</a>
-    </div>
+<!-- PRODUCTS -->
+<div class="section">
+    <h2>🛍️ Featured Products</h2>
     <div class="products-grid">
-      <?php
-      $i = 0;
-      while($p = mysqli_fetch_assoc($featured)):
-        $i++;
-        $icon = $product_icons[$p['id']-1] ?? '🛍';
-        $discount = $p['original_price'] ? round((1 - $p['price']/$p['original_price'])*100) : 0;
-        $stars = str_repeat('★', round($p['rating'])) . str_repeat('☆', 5-round($p['rating']));
-      ?>
-      <div class="product-card">
-        <div class="product-image-wrap">
-          <div class="product-emoji"><?= $icon ?></div>
-          <?php if($discount > 0): ?>
-            <span class="product-badge badge-sale">-<?= $discount ?>%</span>
-          <?php elseif($i <= 2): ?>
-            <span class="product-badge badge-new">Nouveau</span>
-          <?php endif; ?>
-          <div class="product-actions">
-            <form method="POST" action="pages/wishlist.php">
-              <input type="hidden" name="product_id" value="<?= $p['id'] ?>">
-              <input type="hidden" name="action" value="add">
-              <button type="submit" class="product-action-btn" title="Ajouter aux favoris">♡</button>
-            </form>
-            <a href="pages/product.php?id=<?= $p['id'] ?>" class="product-action-btn" title="Voir le produit">👁</a>
-          </div>
-        </div>
-        <div class="product-info">
-          <div class="product-category"><?= $p['cat_name'] ?></div>
-          <a href="pages/product.php?id=<?= $p['id'] ?>" style="text-decoration:none">
-            <div class="product-name"><?= $p['name'] ?></div>
-          </a>
-          <div class="product-rating">
-            <span class="stars"><?= $stars ?></span>
-            <span class="rating-count">(<?= $p['review_count'] ?>)</span>
-          </div>
-          <div class="product-price-row">
-            <div>
-              <span class="product-price"><?= formatPrice($p['price']) ?></span>
-              <?php if($p['original_price']): ?>
-                <span class="product-original-price"><?= formatPrice($p['original_price']) ?></span>
-              <?php endif; ?>
+
+        <div class="product-card">
+            <div class="product-img">💻</div>
+            <div class="product-info">
+                <h3>Laptop Pro X</h3>
+                <p>High performance laptop for professionals</p>
+                <div class="price">$999.99</div>
+                <a href="?id=1" class="btn-buy">View Details</a>
             </div>
-            <form method="POST" action="pages/cart.php">
-              <!-- ⚠️ Pas de token CSRF -->
-              <input type="hidden" name="product_id" value="<?= $p['id'] ?>">
-              <input type="hidden" name="action" value="add">
-              <button type="submit" class="add-to-cart-btn" onclick="addToCartFeedback(this)" title="Ajouter au panier">+</button>
-            </form>
-          </div>
         </div>
-      </div>
-      <?php endwhile; ?>
-    </div>
-  </div>
-</section>
 
-<!-- Promo banner -->
-<section style="background:var(--primary);padding:48px 0">
-  <div class="container" style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:24px">
-    <div>
-      <div style="font-size:12px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--accent);margin-bottom:10px">Offre limitée</div>
-      <h2 style="font-family:var(--font-display);font-size:32px;color:white;margin-bottom:8px">Jusqu'à <em style="color:var(--accent)">-30%</em> sur l'électronique</h2>
-      <p style="color:rgba(255,255,255,.6);font-size:14px">Utilisez le code <strong style="color:white;font-family:monospace">PROMO20</strong> au checkout</p>
-    </div>
-    <a href="pages/search.php?cat=1&promo=1" class="btn btn-accent btn-lg">Profiter de l'offre</a>
-  </div>
-</section>
-
-<!-- New arrivals -->
-<section class="section" style="background:white">
-  <div class="container">
-    <div class="section-header">
-      <h2 class="section-title">Dernières <span>arrivées</span></h2>
-      <a href="pages/search.php?sort=new" class="section-link">Voir tout →</a>
-    </div>
-    <div class="products-grid">
-      <?php
-      $i = 0;
-      while($p = mysqli_fetch_assoc($new_arrivals)):
-        $i++;
-        $icon  = $product_icons[$p['id']-1] ?? '🛍';
-        $stars = str_repeat('★', round($p['rating'])) . str_repeat('☆', 5-round($p['rating']));
-      ?>
-      <div class="product-card">
-        <div class="product-image-wrap">
-          <div class="product-emoji"><?= $icon ?></div>
-          <span class="product-badge badge-new">Nouveau</span>
-          <div class="product-actions">
-            <a href="pages/product.php?id=<?= $p['id'] ?>" class="product-action-btn">👁</a>
-          </div>
+        <div class="product-card">
+            <div class="product-img">📱</div>
+            <div class="product-info">
+                <h3>SmartPhone Z</h3>
+                <p>Latest smartphone with amazing features</p>
+                <div class="price">$699.99</div>
+                <a href="?id=2" class="btn-buy">View Details</a>
+            </div>
         </div>
-        <div class="product-info">
-          <div class="product-category"><?= $p['cat_name'] ?></div>
-          <a href="pages/product.php?id=<?= $p['id'] ?>" style="text-decoration:none">
-            <div class="product-name"><?= $p['name'] ?></div>
-          </a>
-          <div class="product-rating">
-            <span class="stars"><?= $stars ?></span>
-            <span class="rating-count">(<?= $p['review_count'] ?>)</span>
-          </div>
-          <div class="product-price-row">
-            <span class="product-price"><?= formatPrice($p['price']) ?></span>
-            <form method="POST" action="pages/cart.php">
-              <input type="hidden" name="product_id" value="<?= $p['id'] ?>">
-              <input type="hidden" name="action" value="add">
-              <button type="submit" class="add-to-cart-btn" onclick="addToCartFeedback(this)">+</button>
-            </form>
-          </div>
-        </div>
-      </div>
-      <?php endwhile; ?>
-    </div>
-  </div>
-</section>
 
-<!-- Trust badges -->
-<section style="background:var(--gray-50);border-top:1px solid var(--border);padding:40px 0">
-  <div class="container">
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:24px">
-      <?php foreach([
-        ['🚚','Livraison rapide','Livraison gratuite dès 99€, expédition sous 24h'],
-        ['🔒','Paiement sécurisé','Transactions cryptées SSL, CB, PayPal, virement'],
-        ['↩️','Retours faciles','30 jours pour changer d\'avis, retours gratuits'],
-        ['⭐','Qualité garantie','Produits vérifiés, avis authentiques, SAV réactif'],
-      ] as [$icon,$title,$desc]): ?>
-      <div style="display:flex;align-items:flex-start;gap:14px;padding:20px;background:white;border:1px solid var(--border);border-radius:12px">
-        <span style="font-size:24px"><?= $icon ?></span>
-        <div>
-          <div style="font-weight:500;font-size:14px;margin-bottom:4px"><?= $title ?></div>
-          <div style="font-size:12px;color:var(--gray-500);line-height:1.6"><?= $desc ?></div>
+        <div class="product-card">
+            <div class="product-img">🎮</div>
+            <div class="product-info">
+                <h3>Gaming Console</h3>
+                <p>Next generation gaming experience</p>
+                <div class="price">$499.99</div>
+                <a href="?id=3" class="btn-buy">View Details</a>
+            </div>
         </div>
-      </div>
-      <?php endforeach; ?>
-    </div>
-  </div>
-</section>
 
-<?php require_once 'includes/footer.php'; ?>
+        <div class="product-card">
+            <div class="product-img">⌚</div>
+            <div class="product-info">
+                <h3>Smart Watch</h3>
+                <p>Track your health and stay connected</p>
+                <div class="price">$299.99</div>
+                <a href="?id=4" class="btn-buy">View Details</a>
+            </div>
+        </div>
+
+        <div class="product-card">
+            <div class="product-img">🎧</div>
+            <div class="product-info">
+                <h3>Pro Headphones</h3>
+                <p>Crystal clear sound quality</p>
+                <div class="price">$199.99</div>
+                <a href="?id=5" class="btn-buy">View Details</a>
+            </div>
+        </div>
+
+        <div class="product-card">
+            <div class="product-img">📷</div>
+            <div class="product-info">
+                <h3>DSLR Camera</h3>
+                <p>Professional photography made easy</p>
+                <div class="price">$1299.99</div>
+                <a href="?id=6" class="btn-buy">View Details</a>
+            </div>
+        </div>
+
+    </div>
+
+    <?php
+    // Vulnérabilité : SQL Injection intentionnelle
+    if (isset($_GET['id'])) {
+        $id = $_GET['id'];
+        $conn = getDB();
+        $query = "SELECT * FROM products WHERE id=" . $id;
+        $result = mysqli_query($conn, $query);
+        if ($result) {
+            echo "<div style='margin-top:30px; padding:20px; background:white; border-radius:10px;'>";
+            echo "<h3>Product Details</h3>";
+            while ($row = mysqli_fetch_assoc($result)) {
+                echo "<p><b>Name:</b> " . $row['name'] . "</p>";
+                echo "<p><b>Description:</b> " . $row['description'] . "</p>";
+                echo "<p><b>Price:</b> $" . $row['price'] . "</p>";
+            }
+            echo "</div>";
+        }
+    }
+    ?>
+</div>
+
+<!-- FOOTER -->
+<footer>
+    <p>© 2026 <span>VulnShop</span> — Built for DevSecOps PFE demonstration</p>
+    <p style="margin-top:10px; font-size:12px;">⚠️ This application is intentionally vulnerable for security testing purposes</p>
+</footer>
+
+</body>
+</html>

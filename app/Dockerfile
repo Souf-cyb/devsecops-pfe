@@ -1,13 +1,16 @@
-FROM php:7.4-apache
+FROM php:8.0-apache
 
-RUN docker-php-ext-install mysqli pdo pdo_mysql
-RUN apt-get update && apt-get install -y libpng-dev zip unzip curl \
-    && docker-php-ext-install gd
+# Installer les extensions nécessaires
+RUN docker-php-ext-install mysqli
 
-RUN a2enmod rewrite
-
+# Copier le code
 COPY . /var/www/html/
-RUN mkdir -p /var/www/html/uploads && chmod 777 /var/www/html/uploads
-RUN mkdir -p /var/www/html/assets/uploads && chmod 777 /var/www/html/assets/uploads
+
+# Créer le dossier uploads
+RUN mkdir -p /var/www/html/uploads
+RUN chmod 777 /var/www/html/uploads
+
+# Vulnérabilité : Permissions trop larges
+RUN chmod 777 /var/www/html/
 
 EXPOSE 80
