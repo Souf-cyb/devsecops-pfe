@@ -263,7 +263,7 @@ jobs:
   dynamic-security-analysis:
     name: Build & DAST Scan (ZAP + Nuclei)
     runs-on: ubuntu-latest
-    needs: [secret-scanning, sca-dependency-check]
+    needs: [secret-scanning]
     if: always()
     steps:
       - name: Checkout Application Code
@@ -377,7 +377,7 @@ jobs:
     name: Generate Security Dashboard
     runs-on: ubuntu-latest
     # Mise à jour critique des 'needs' pour correspondre à ton job fusionné
-    needs: [sast-semgrep, sca-dependency-check, iac-checkov, trivy-scan, dynamic-security-analysis]
+    needs: [sast-semgrep, iac-checkov, trivy-scan, dynamic-security-analysis]
     if: always()
     steps:
       - name: Checkout code
