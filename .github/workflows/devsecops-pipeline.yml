@@ -331,29 +331,30 @@ jobs:
 
       - name: Build Docker image
         run: |
-          # Build de l'image de ton fork
-          docker build -t juice-shop:latest .
+          # Cherche le Dockerfile n'importe où dans le fork pour éviter l'erreur "No such file"
+          DOCKERFILE_PATH=$(find . -name "Dockerfile" | head -n 1)
+          echo "Dockerfile trouvé : $DOCKERFILE_PATH"
+          # Construit l'image à partir du dossier contenant le Dockerfile
+          docker build -t juice-shop:latest -f "$DOCKERFILE_PATH" .
 
       - name: Create reports directory
         run: mkdir -p reports/trivy
 
-      # Téléchargement du template officiel pour le rapport HTML
       - name: Download Trivy HTML template
         run: |
+          # URL corrigée pour télécharger le template réel
           curl -sRR https://githubusercontent.com -o reports/trivy/html.tpl
 
-      # Scan combiné (SCA + OS) au format HTML
       - name: Run Trivy scan (HTML)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: 'juice-shop:latest'
           format: 'template'
           template: '@/github/workspace/reports/trivy/html.tpl'
           output: 'reports/trivy/trivy-report.html'
           severity: 'CRITICAL,HIGH'
-          scanners: 'vuln' # Force le scan des vulnérabilités OS et Bibliothèques (SCA)
+          scanners: 'vuln'
 
-      # Scan combiné (SCA + OS) au format JSON pour le Dashboard (Job 8)
       - name: Run Trivy scan (JSON)
         uses: aquasecurity/trivy-action@master
         with:
@@ -369,6 +370,7 @@ jobs:
         with:
           name: trivy-report
           path: reports/trivy/
+
 
 # ═══════════════════════════════════════════════
 #  JOB 8 — GENERATE SECURITY DASHBOARD
