@@ -346,7 +346,7 @@ jobs:
           curl -sRR https://githubusercontent.com -o reports/trivy/html.tpl
 
       - name: Run Trivy scan (HTML)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'juice-shop:latest'
           format: 'template'
