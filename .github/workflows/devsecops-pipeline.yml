@@ -340,9 +340,7 @@ jobs:
 
     # 🐳 3. Build image Docker
       - name: Build Docker Image
-        run: 
-          cd application-source
-          docker build -t juice-shop:latest .
+        run: docker build -t juice-shop:latest application-source
 
     # 📥 4. Télécharger template HTML officiel
       - name: Download Trivy HTML template
