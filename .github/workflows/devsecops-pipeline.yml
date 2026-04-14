@@ -22,13 +22,13 @@ jobs:
           repository: Souf-cyb/juice-shop 
           fetch-depth: 0
           # 2. METS LE CODE DANS UN DOSSIER
-          path: application-source
+          path: app
 
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
         with:
           # 3. DIS À GITLEAKS DE SCANNER CE DOSSIER
-          source: application-source
+          source: app
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
@@ -53,7 +53,7 @@ jobs:
         with:
           # 1. On pointe vers ton fork
           repository: Souf-cyb/juice-shop
-          path: application-source
+          path: app
 
       - name: Install Semgrep
         run: pip install semgrep --break-system-packages
@@ -64,7 +64,7 @@ jobs:
           # 2. On scanne le dossier application-source
           # J'ai ajouté 'p/javascript' car Juice Shop est en JS/Node
           semgrep scan \
-            application-source \
+            app \
             --config p/owasp-top-ten \
             --config p/javascript \
             --config p/typescript \
@@ -230,7 +230,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Souf-cyb/juice-shop
-          path: application-source
+          path: app
 
       - name: Install Checkov
         run: pip install checkov --break-system-packages
@@ -239,7 +239,7 @@ jobs:
         run: |
           mkdir -p reports
           # On scanne le dossier application-source
-          checkov -d application-source \
+          checkov -d app \
             --framework dockerfile yaml \
             --output json \
             --output-file-path reports/ \
@@ -259,95 +259,167 @@ jobs:
 # ═══════════════════════════════════════════════ 
 # JOB 4 & 6 — BUILD & DAST (FUSIONNÉS)
 # ═══════════════════════════════════════════════
-  dynamic-security-analysis:
-    name: Build + Trivy + DAST Scan
+  build-image:
+    name: Build Docker Image
     runs-on: ubuntu-latest
-    needs: [secret-scanning]
-    if: always()
-
     steps:
       - name: Checkout Application Code
         uses: actions/checkout@v4
         with:
-          repository: Souf-cyb/juice-shop
-          path: application-source
-
-    # ═══════════════════════════════
-    # BUILD IMAGE (UNE SEULE FOIS)
-    # ═══════════════════════════════
+            repository: Souf-cyb/juice-shop
+            path: app
       - name: Build Docker Image
         run: |
-          cd application-source
+          cd app
           docker build -t juice-shop-pfe:latest .
+      - name: Save Docker Image
+        run: |
+          docker save juice-shop-pfe:latest -o image.tar
+
+      - name: Upload Image Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: image.tar
 
     # ═══════════════════════════════
     # TRIVY SCA + IMAGE SCAN
     # ═══════════════════════════════
-      - name: Create reports directory
-        run: mkdir -p reports/trivy reports/zap reports/nuclei
+  trivy-scan:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: always()
 
-      - name: Run Trivy SCA (filesystem scan)
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: fs
-          scan-ref: application-source
-          format: json
-          output: reports/trivy/trivy-sca.json
-          severity: CRITICAL,HIGH,MEDIUM
-          exit-code: 0
+    steps:
 
-      - name: Run Trivy Container Scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: juice-shop-pfe:latest
-          format: json
-          output: reports/trivy/trivy-image.json
-          severity: CRITICAL,HIGH,MEDIUM
-          exit-code: 0
+    - name: Checkout Code (for SCA)
+      uses: actions/checkout@v4
+      with:
+        repository: Souf-cyb/juice-shop
+        path: app
 
-      - name: Run Trivy HTML Report
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: juice-shop-pfe:latest
-          format: template
-          template: "@contrib/html.tpl"
-          output: reports/trivy/trivy-report.html
-          severity: CRITICAL,HIGH,MEDIUM
-          exit-code: 0
-    # ═══════════════════════════════
-    # DAST (ZAP + NUCLEI)
-    # ═══════════════════════════════
-      - name: Launch Application
-        run: |
-         docker run -d -p 3000:3000 --name webapp juice-shop-pfe:latest
-         sleep 10
+    - name: Download Docker Image
+      uses: actions/download-artifact@v4
+      with:
+        name: docker-image
 
-      - name: Run OWASP ZAP
-        run: |
-          mkdir -p reports/zap
-          docker run --network=host \
+    - name: Load Docker Image
+      run: docker load -i image.tar
+
+    - name: Create Reports Directory
+      run: mkdir -p reports/trivy contrib
+
+    - name: Download Trivy HTML Template
+      run: |
+        curl -sL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl \
+        -o contrib/html.tpl
+
+    # =========================
+    # SCA SCAN (Dependencies)
+    # =========================
+    - name: Trivy SCA Scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: fs
+        scan-ref: app
+        format: json
+        output: reports/trivy/sca.json
+        severity: CRITICAL,HIGH,MEDIUM
+        exit-code: 0
+
+    # =========================
+    # IMAGE SCAN
+    # =========================
+    - name: Trivy Image Scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: juice-shop-pfe:latest
+        format: json
+        output: reports/trivy/image.json
+        severity: CRITICAL,HIGH,MEDIUM
+        exit-code: 0
+
+    # =========================
+    # HTML REPORT
+    # =========================
+    - name: Trivy HTML Report
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: juice-shop-pfe:latest
+        format: template
+        template: "@contrib/html.tpl"
+        output: reports/trivy/report.html
+        severity: CRITICAL,HIGH,MEDIUM
+        exit-code: 0
+
+    - name: Upload Reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: trivy-reports
+        path: reports/trivy/
+  
+  dast-scan:
+    name: DAST Security Scan (ZAP + Nuclei)
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: always()
+
+    steps:
+
+    - name: Download Docker Image
+      uses: actions/download-artifact@v4
+      with:
+        name: docker-image
+
+    - name: Load Docker Image
+      run: docker load -i image.tar
+
+    - name: Run Application
+      run: |
+        docker run -d -p 3000:3000 --name app juice-shop-pfe:latest
+
+        for i in {1..20}; do
+          curl -s http://localhost:3000 && break
+          sleep 5
+        done
+
+    # =========================
+    # ZAP
+    # =========================
+    - name: Run OWASP ZAP
+      run: |
+        mkdir -p reports/zap
+
+        docker run --network=host \
           -v ${{ github.workspace }}/reports/zap:/zap/wrk/:rw \
           ghcr.io/zaproxy/zaproxy:stable \
           zap-full-scan.py -t http://localhost:3000 -r zap.html -I || true
 
-      - name: Run Nuclei
-        run: |
-          mkdir -p reports/nuclei
-          docker run --network=host \
+    # =========================
+    # NUCLEI
+    # =========================
+    - name: Run Nuclei Scan
+      run: |
+        mkdir -p reports/nuclei
+
+        docker run --network=host \
           -v ${{ github.workspace }}/reports/nuclei:/reports \
           projectdiscovery/nuclei:latest \
           -u http://localhost:3000 \
           -severity critical,high,medium \
           -json-export /reports/nuclei.json || true
-    # ═══════════════════════════════
+
+    # =========================
     # UPLOAD
-    # ═══════════════════════════════
-      - name: Upload Reports
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: security-reports
-          path: reports/
+    # =========================
+    - name: Upload DAST Reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: dast-reports
+        path: reports/
 # ═══════════════════════════════════════════════
 #  JOB 8 — GENERATE SECURITY DASHBOARD
 # ═══════════════════════════════════════════════
@@ -355,7 +427,7 @@ jobs:
     name: Generate Security Dashboard
     runs-on: ubuntu-latest
     # Mise à jour critique des 'needs' pour correspondre à ton job fusionné
-    needs: [sast-semgrep, iac-checkov, dynamic-security-analysis]
+    needs: [sast-semgrep, iac-checkov]
     if: always()
     steps:
       - name: Checkout code
