@@ -295,7 +295,7 @@ jobs:
           docker run --network=host \
             -v ${{ github.workspace }}/reports/zap:/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py -t http://localhost:3000 -r zap-report.html -I || true
+            zap-full-scan.py -t http://localhost:3000 -r zap-report.html -I || true
 
       # --- SCAN 2 : NUCLEI (Complémentaire) ---
       - name: Run Nuclei Scan
@@ -344,7 +344,7 @@ jobs:
 
       # Scan combiné (SCA + OS) au format HTML
       - name: Run Trivy scan (HTML)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'juice-shop:latest'
           format: 'template'
@@ -355,7 +355,7 @@ jobs:
 
       # Scan combiné (SCA + OS) au format JSON pour le Dashboard (Job 8)
       - name: Run Trivy scan (JSON)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'juice-shop:latest'
           format: 'json'
