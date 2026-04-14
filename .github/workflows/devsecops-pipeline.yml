@@ -355,7 +355,7 @@ jobs:
     name: Generate Security Dashboard
     runs-on: ubuntu-latest
     # Mise à jour critique des 'needs' pour correspondre à ton job fusionné
-    needs: [sast-semgrep, iac-checkov, trivy-scan, dynamic-security-analysis]
+    needs: [sast-semgrep, iac-checkov, dynamic-security-analysis]
     if: always()
     steps:
       - name: Checkout code
