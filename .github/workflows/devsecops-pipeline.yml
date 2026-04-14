@@ -219,39 +219,6 @@ jobs:
         with:
           name: semgrep-sast-report
           path: reports/
-
-# ═══════════════════════════════════════════════
-#  JOB 2 — SCA DEPENDENCY CHECK
-# ═══════════════════════════════════════════════
-  sca-dependency-check:
-    name: SCA - Dependency Check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Application Code
-        uses: actions/checkout@v4
-        with:
-          repository: Souf-cyb/juice-shop
-          path: application-source
-
-      - name: Run Dependency Check
-        uses: dependency-check/Dependency-Check_Action@main
-        with:
-          project: 'devsecops-pfe'
-          # On scanne le dossier du fork (contient package.json)
-          path: './application-source'
-          format: 'ALL'
-          out: 'reports'
-          args: >
-            --enableExperimental
-
-      - name: Upload Dependency Check Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: dependency-check-report
-          path: reports/
-
-
 # ═══════════════════════════════════════════════
 #  JOB 3 — IaC CHECKOV
 # ═══════════════════════════════════════════════
@@ -290,7 +257,6 @@ jobs:
           path: reports/
           if-no-files-found: warn
 
-
 # ═══════════════════════════════════════════════
 #  JOB 4 & 6 — BUILD & DAST (FUSIONNÉS)
 # ═══════════════════════════════════════════════
@@ -303,7 +269,7 @@ jobs:
       - name: Checkout Application Code
         uses: actions/checkout@v4
         with:
-          repository: ton-username/ton-fork-juice-shop # TON FORK ICI
+          repository: Souf-cyb/juice-shop # TON FORK ICI
           path: application-source
 
       - name: Build Docker Image
@@ -351,55 +317,51 @@ jobs:
           name: full-dast-security-reports
           path: ${{ github.workspace }}/reports/
 
-
 # ═══════════════════════════════════════════════
-#  JOB 5 — CONTAINER SCAN TRIVY
+#  JOB 5 — CONTAINER SCAN TRIVY (SCA + IMAGE)
 # ═══════════════════════════════════════════════
   trivy-scan:
     name: Container Scan - Trivy
     runs-on: ubuntu-latest
-    # Il dépend maintenant du job fusionné ou des scans initiaux
-    needs: [secret-scanning, sca-dependency-check]
+    needs: [secret-scanning, sast-semgrep]
     if: always()
     steps:
-      - name: Checkout Application Code
+      - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          repository: Souf-cyb/juice-shop
-          path: application-source
 
       - name: Build Docker image
         run: |
-          cd application-source
-          # On garde un tag cohérent pour le scan
+          # Build de l'image de ton fork
           docker build -t juice-shop:latest .
-
-      - name: Download Trivy HTML template
-        run: |
-          mkdir -p contrib
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o contrib/html.tpl
 
       - name: Create reports directory
         run: mkdir -p reports/trivy
 
+      # Téléchargement du template officiel pour le rapport HTML
+      - name: Download Trivy HTML template
+        run: |
+          curl -sRR https://githubusercontent.com -o reports/trivy/html.tpl
+
+      # Scan combiné (SCA + OS) au format HTML
+      - name: Run Trivy scan (HTML)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: 'juice-shop:latest'
+          format: 'template'
+          template: '@/github/workspace/reports/trivy/html.tpl'
+          output: 'reports/trivy/trivy-report.html'
+          severity: 'CRITICAL,HIGH'
+          scanners: 'vuln' # Force le scan des vulnérabilités OS et Bibliothèques (SCA)
+
+      # Scan combiné (SCA + OS) au format JSON pour le Dashboard (Job 8)
       - name: Run Trivy scan (JSON)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: 'juice-shop:latest'
           format: 'json'
           output: 'reports/trivy/trivy-report.json'
           severity: 'CRITICAL,HIGH'
-          exit-code: '0'
-
-      - name: Run Trivy scan (HTML)
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'juice-shop:latest'
-          format: 'template'
-          template: '@/contrib/html.tpl' # Correction du chemin du template
-          output: 'reports/trivy/trivy-report.html'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'
+          scanners: 'vuln'
 
       - name: Upload Trivy Reports
         uses: actions/upload-artifact@v4
@@ -407,7 +369,7 @@ jobs:
         with:
           name: trivy-report
           path: reports/trivy/
-          if-no-files-found: warn
+
 # ═══════════════════════════════════════════════
 #  JOB 8 — GENERATE SECURITY DASHBOARD
 # ═══════════════════════════════════════════════
