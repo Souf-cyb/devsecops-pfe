@@ -321,55 +321,84 @@ jobs:
 #  JOB 5 — CONTAINER SCAN TRIVY (SCA + IMAGE)
 # ═══════════════════════════════════════════════
   trivy-scan:
-    name: Container Scan - Trivy
+    name: Container & SCA Scan - Trivy
     runs-on: ubuntu-latest
     needs: [secret-scanning, sast-semgrep]
     if: always()
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        repository: Souf-cyb/juice-shop
-        path: application-source
+    # 📥 1. Checkout ton fork Juice Shop
+      - name: Checkout Application Code
+        uses: actions/checkout@v4
+        with:
+          repository: Souf-cyb/juice-shop
+          path: application-source
 
-    - name: Build Docker image
-      run: |
-        cd application-source
-        docker build -t juice-shop:latest .
+    # 📁 2. Préparer les dossiers
+      - name: Create reports directories
+        run: mkdir -p reports/trivy
 
-    - name: Create reports directory
-      run: mkdir -p reports/trivy
+    # 🐳 3. Build image Docker
+      - name: Build Docker Image
+        run: 
+          cd application-source
+          docker build -t juice-shop:latest .
 
-    - name: Download Trivy HTML template
-      run: |
-        curl -sSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o reports/trivy/html.tpl
+    # 📥 4. Télécharger template HTML officiel
+      - name: Download Trivy HTML template
+        run: curl -sSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o reports/trivy/html.tpl
 
-    - name: Run Trivy scan (HTML)
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: 'juice-shop:latest'
-        format: 'template'
-        template: '@/github/workspace/reports/trivy/html.tpl'
-        output: 'reports/trivy/trivy-report.html'
-        severity: 'CRITICAL,HIGH'
-        scanners: 'vuln'
+    # 🔍 5. SCAN IMAGE (OS + packages)
+      - name: Run Trivy Image Scan (JSON)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'juice-shop:latest'
+          format: 'json'
+          output: 'reports/trivy/image-report.json'
+          severity: 'CRITICAL,HIGH'
+          scanners: 'vuln'
 
-    - name: Run Trivy scan (JSON)
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: 'juice-shop:latest'
-        format: 'json'
-        output: 'reports/trivy/trivy-report.json'
-        severity: 'CRITICAL,HIGH'
-        scanners: 'vuln'
+    # 🔍 6. SCAN SCA (filesystem / node modules)
+      - name: Run Trivy Filesystem Scan (SCA)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'application-source'
+          format: 'json'
+          output: 'reports/trivy/fs-report.json'
+          severity: 'CRITICAL,HIGH'
+          scanners: 'vuln'
 
-    - name: Upload Trivy Reports
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: trivy-report
-        path: reports/trivy/
+    # 📊 7. Rapport HTML (image)
+      - name: Generate HTML Report (Image)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'juice-shop:latest'
+          format: 'template'
+          template: 'reports/trivy/html.tpl'
+          output: 'reports/trivy/trivy-image-report.html'
+          severity: 'CRITICAL,HIGH'
+          scanners: 'vuln'
+
+    # 📊 8. Rapport HTML (SCA)
+      - name: Generate HTML Report (Filesystem)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'application-source'
+          format: 'template'
+          template: 'reports/trivy/html.tpl'
+          output: 'reports/trivy/trivy-fs-report.html'
+          severity: 'CRITICAL,HIGH'
+          scanners: 'vuln'
+
+    # 📤 9. Upload rapports
+      - name: Upload Trivy Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-security-report
+          path: reports/trivy/
 # ═══════════════════════════════════════════════
 #  JOB 8 — GENERATE SECURITY DASHBOARD
 # ═══════════════════════════════════════════════
