@@ -344,6 +344,27 @@ jobs:
             -severity critical,high,medium \
             -o /reports/nuclei-report.txt \
             -json-export /reports/nuclei-report.json || true
+      
+      - name: Run SQLMap on multiple targets
+        run: |
+          mkdir -p reports/sqli
+
+          pip install sqlmap
+
+          for url in \
+            "http://localhost:3000/rest/products/search?q=test" \
+            "http://localhost:3000/rest/user/login" \
+           "http://localhost:3000/api/Users"
+          do
+            echo "Scanning $url"
+
+            sqlmap -u "$url" \
+              --batch \
+              --level=3 \
+              --risk=2 \
+              --dbs \
+              --output-dir=reports/sqli || true
+          done
 
     # =========================
     # UPLOAD
