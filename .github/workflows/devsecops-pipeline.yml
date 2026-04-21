@@ -328,7 +328,11 @@ jobs:
           docker run --network=host \
             -v ${{ github.workspace }}/reports/zap:/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap-full-scan.py -t http://localhost:3000 -r zap-report.html -I || true
+            zap-full-scan.py \
+              -t http://localhost:3000 \
+              -r zap-report.html \
+              -J zap-report.json \
+              -I || true
 
     # =========================
     # NUCLEI
@@ -344,27 +348,6 @@ jobs:
             -severity critical,high,medium \
             -o /reports/nuclei-report.txt \
             -json-export /reports/nuclei-report.json || true
-      
-      - name: Run SQLMap on multiple targets
-        run: |
-          mkdir -p reports/sqli
-
-          pip install sqlmap
-
-          for url in \
-            "http://localhost:3000/rest/products/search?q=test" \
-            "http://localhost:3000/rest/user/login" \
-           "http://localhost:3000/api/Users"
-          do
-            echo "Scanning $url"
-
-            sqlmap -u "$url" \
-              --batch \
-              --level=3 \
-              --risk=2 \
-              --dbs \
-              --output-dir=reports/sqli || true
-          done
 
     # =========================
     # UPLOAD
@@ -629,154 +612,302 @@ jobs:
           import json, os, glob
           from datetime import datetime
 
-          def load_json(pattern):
+          def load_json_file(pattern):
               files = glob.glob(pattern, recursive=True)
-              if files:
-                  with open(files[0], 'r') as f:
+              if not files:
+                  return None
+              try:
+                  with open(files[0], 'r', encoding='utf-8', errors='replace') as f:
                       return json.load(f)
-              return None
+              except Exception as e:
+                  print(f"[WARN] load_json_file({pattern}): {e}")
+                  return None
 
-          # 1. SAST - Semgrep
-          sem_data = load_json("reports/semgrep/**/*.json")
-          sem_results = sem_data.get("results", []) if sem_data else []
-          sem_high    = [r for r in sem_results if r["extra"]["severity"] == "ERROR"]
-          sem_med     = [r for r in sem_results if r["extra"]["severity"] == "WARNING"]
-
-          # 2. DAST - ZAP
-          zap_data = load_json("reports/dast-combined/**/report_json.json")
-          zap_high = zap_med = 0
-          if zap_data:
-              for site in zap_data.get("site", []):
-                  for alert in site.get("alerts", []):
-                      rc = alert.get("riskcode", "0")
-                      if rc == "3": zap_high += 1
-                      elif rc == "2": zap_med += 1
-
-          # 3. DAST - Nuclei
-          nuclei_path = glob.glob("reports/dast-combined/**/nuclei-report.json", recursive=True)
-          nuclei_crit = nuclei_high = nuclei_med = 0
-          if nuclei_path:
-              with open(nuclei_path[0], 'r') as f:
+          def load_jsonlines(pattern):
+              """Nuclei écrit un objet JSON par ligne, pas un tableau."""
+              files = glob.glob(pattern, recursive=True)
+              if not files:
+                  return []
+              results = []
+              with open(files[0], 'r', encoding='utf-8', errors='replace') as f:
                   for line in f:
+                      line = line.strip()
+                      if not line:
+                          continue
                       try:
-                          sev = json.loads(line).get("info", {}).get("severity", "")
-                          if sev == "critical": nuclei_crit += 1
-                          elif sev == "high":   nuclei_high += 1
-                          elif sev == "medium": nuclei_med  += 1
-                      except: continue
+                          results.append(json.loads(line))
+                      except:
+                          continue
+              return results
 
-          # 4. SCA + Image - Trivy (deux fichiers séparés)
-          trivy_sca   = load_json("reports/trivy/trivy-sca.json")
-          trivy_image = load_json("reports/trivy/trivy-image.json")
+          def cve_link(vid):
+              if vid.startswith("CVE-"):
+                  return f"https://nvd.nist.gov/vuln/detail/{vid}"
+              return f"https://osv.dev/vulnerability/{vid}"
+
+          # ── DEBUG : lister les fichiers trouvés ──────────────────────────
+          for pat in ["reports/**/*.json", "reports/**/*.html"]:
+              found = glob.glob(pat, recursive=True)
+              print(f"[DEBUG] {pat} => {found}")
+
+          # ════════════════════════════════════════════════════════════════
+          # 1. SAST — Semgrep
+          # ════════════════════════════════════════════════════════════════
+          sem_data    = load_json_file("reports/semgrep/**/*.json")
+          sem_results = sem_data.get("results", []) if sem_data else []
+          sem_high    = [r for r in sem_results if r.get("extra", {}).get("severity") == "ERROR"]
+          sem_med     = [r for r in sem_results if r.get("extra", {}).get("severity") == "WARNING"]
+
+          sem_findings = []
+          for r in sem_high:
+              meta  = r.get("extra", {}).get("metadata", {})
+              cwes  = meta.get("cwe", [])
+              cwe   = cwes[0] if cwes else "N/A"
+              sem_findings.append({
+                  "tool": "Semgrep",
+                  "id": cwe,
+                  "severity": "HIGH",
+                  "pkg": r.get("check_id", "").split(".")[-1],
+                  "file": f"{r.get('path','')}:{r.get('start',{}).get('line','')}",
+                  "desc": r.get("extra", {}).get("message", "")[:120],
+                  "link": meta.get("references", [None])[0] or ""
+              })
+
+          # ════════════════════════════════════════════════════════════════
+          # 2. DAST — ZAP  (format: {"site":[{"alerts":[...]}]})
+          # ════════════════════════════════════════════════════════════════
+          zap_data = load_json_file("reports/dast-combined/**/zap-report.json")
+          zap_high_count = zap_med_count = 0
+          zap_findings = []
+
+          if zap_data:
+              sites = zap_data.get("site", [])
+              if isinstance(sites, dict):   # parfois un seul objet et non liste
+                  sites = [sites]
+              for site in sites:
+                  alerts = site.get("alerts", [])
+                  for alert in alerts:
+                      rc   = str(alert.get("riskcode", "0"))
+                      name = alert.get("name", "")
+                      cweid = alert.get("cweid", "")
+                      desc  = alert.get("desc", "").replace("<p>","").replace("</p>","")[:120]
+                      ref   = alert.get("reference", "")
+                      uri   = ""
+                      instances = alert.get("instances", [{}])
+                      if instances:
+                          uri = instances[0].get("uri", "")
+                      if rc == "3":
+                          zap_high_count += 1
+                          zap_findings.append({
+                              "tool": "ZAP",
+                              "id": f"CWE-{cweid}" if cweid else name,
+                              "severity": "HIGH",
+                              "pkg": name,
+                              "file": uri,
+                              "desc": desc,
+                              "link": f"https://cwe.mitre.org/data/definitions/{cweid}.html" if cweid else ""
+                          })
+                      elif rc == "2":
+                          zap_med_count += 1
+
+          # ════════════════════════════════════════════════════════════════
+          # 3. DAST — Nuclei  (JSON-lines : un objet par ligne)
+          # ════════════════════════════════════════════════════════════════
+          nuclei_items = load_jsonlines("reports/dast-combined/**/nuclei-report.json")
+          nuclei_crit = nuclei_high = nuclei_med = 0
+          nuclei_findings = []
+
+          for item in nuclei_items:
+              info = item.get("info", {})
+              sev  = info.get("severity", "").lower()
+              vid  = item.get("template-id", info.get("name", ""))
+              desc = info.get("description", "")[:120]
+              url  = item.get("matched-at", item.get("host", ""))
+              tags = info.get("tags", [])
+              cvss = info.get("classification", {})
+              cve_ids = cvss.get("cve-id", [])
+              link = cve_link(cve_ids[0]) if cve_ids else ""
+
+              if sev == "critical":
+                  nuclei_crit += 1
+                  nuclei_findings.append({"tool":"Nuclei","id":cve_ids[0] if cve_ids else vid,"severity":"CRITICAL","pkg":vid,"file":url,"desc":desc,"link":link})
+              elif sev == "high":
+                  nuclei_high += 1
+                  nuclei_findings.append({"tool":"Nuclei","id":cve_ids[0] if cve_ids else vid,"severity":"HIGH","pkg":vid,"file":url,"desc":desc,"link":link})
+              elif sev == "medium":
+                  nuclei_med += 1
+
+          # ════════════════════════════════════════════════════════════════
+          # 4. SCA + Image — Trivy
+          # ════════════════════════════════════════════════════════════════
+          trivy_sca   = load_json_file("reports/trivy/trivy-sca.json")
+          trivy_image = load_json_file("reports/trivy/trivy-image.json")
           trivy_crit = trivy_high = trivy_med = 0
+          trivy_findings = []
+
           for td in [trivy_sca, trivy_image]:
-              if not td: continue
+              if not td:
+                  continue
+              src = "IMAGE" if td is trivy_image else "SCA"
               for res in td.get("Results", []):
                   for v in res.get("Vulnerabilities", []):
                       sev = v.get("Severity", "")
-                      if sev == "CRITICAL": trivy_crit += 1
-                      elif sev == "HIGH":   trivy_high += 1
-                      elif sev == "MEDIUM": trivy_med  += 1
+                      vid = v.get("VulnerabilityID", "")
+                      if sev == "CRITICAL":
+                          trivy_crit += 1
+                          trivy_findings.append({"tool":f"Trivy ({src})","id":vid,"severity":"CRITICAL","pkg":v.get("PkgName",""),"file":v.get("InstalledVersion",""),"desc":v.get("Title","")[:120],"link":cve_link(vid)})
+                      elif sev == "HIGH":
+                          trivy_high += 1
+                          trivy_findings.append({"tool":f"Trivy ({src})","id":vid,"severity":"HIGH","pkg":v.get("PkgName",""),"file":v.get("InstalledVersion",""),"desc":v.get("Title","")[:120],"link":cve_link(vid)})
+                      elif sev == "MEDIUM":
+                          trivy_med += 1
 
-          trivy_total = trivy_crit + trivy_high + trivy_med
-          sem_total   = len(sem_results)
-          zap_total   = zap_high + zap_med
-          nuc_total   = nuclei_crit + nuclei_high + nuclei_med
-          grand_total = sem_total + zap_total + nuc_total + trivy_total
+          # ════════════════════════════════════════════════════════════════
+          # Totaux
+          # ════════════════════════════════════════════════════════════════
+          sem_total    = len(sem_results)
+          zap_total    = zap_high_count + zap_med_count
+          nuc_total    = nuclei_crit + nuclei_high + nuclei_med
+          trivy_total  = trivy_crit + trivy_high + trivy_med
+          grand_total  = sem_total + zap_total + nuc_total + trivy_total
+          grand_crit   = nuclei_crit + trivy_crit
+          grand_high   = len(sem_high) + zap_high_count + nuclei_high + trivy_high
+          grand_med    = len(sem_med)  + zap_med_count  + nuclei_med  + trivy_med
+
+          # Tous les findings Critical/High pour le tableau détaillé
+          all_critical_high = []
+          for f in sem_findings:
+              all_critical_high.append(f)
+          for f in zap_findings:
+              all_critical_high.append(f)
+          for f in nuclei_findings:
+              all_critical_high.append(f)
+          for f in trivy_findings:
+              all_critical_high.append(f)
+
+          # Tri : Critical en premier
+          sev_order = {"CRITICAL": 0, "HIGH": 1}
+          all_critical_high.sort(key=lambda x: sev_order.get(x["severity"], 2))
 
           def bar(val, maxi, color):
               pct = int((val / maxi) * 100) if maxi > 0 else 0
-              return f'<div style="height:6px;background:#e2e8f0;border-radius:3px;margin-top:6px"><div style="height:6px;width:{pct}%;background:{color};border-radius:3px"></div></div>'
+              return f'<div style="height:5px;background:#1e293b;border-radius:3px;margin-top:5px;border:1px solid #334155"><div style="height:5px;width:{pct}%;background:{color};border-radius:3px"></div></div>'
 
-          def badge(label, val, color, bg):
-              return f'<span style="background:{bg};color:{color};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:500;margin-right:4px">{label}: {val}</span>'
+          SEV_COLOR = {"CRITICAL": "#ef4444", "HIGH": "#f97316", "MEDIUM": "#eab308"}
+
+          def sev_badge(s):
+              c = SEV_COLOR.get(s, "#94a3b8")
+              return f'<span style="background:{c}22;color:{c};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">{s}</span>'
+
+          rows = ""
+          for i, f in enumerate(all_critical_high):
+              link_cell = f'<a href="{f["link"]}" target="_blank" style="color:#60a5fa;text-decoration:none">&#x1F517; NVD</a>' if f["link"] else "—"
+              rows += f"""
+              <tr style="border-top:1px solid #1e293b">
+                <td style="padding:8px 10px;font-size:11px;color:#94a3b8">{i+1}</td>
+                <td style="padding:8px 10px;font-size:11px"><code style="background:#0f172a;padding:1px 5px;border-radius:3px;color:#7dd3fc">{f["tool"]}</code></td>
+                <td style="padding:8px 10px;font-size:11px">{sev_badge(f["severity"])}</td>
+                <td style="padding:8px 10px;font-size:11px;color:#e2e8f0;font-weight:500">{f["id"]}</td>
+                <td style="padding:8px 10px;font-size:11px;color:#94a3b8">{f["pkg"]}</td>
+                <td style="padding:8px 10px;font-size:11px;color:#94a3b8;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{f["desc"]}</td>
+                <td style="padding:8px 10px;font-size:11px">{link_cell}</td>
+              </tr>"""
 
           html = f"""<!DOCTYPE html>
           <html lang="fr">
           <head>
-            <meta charset="UTF-8">
-            <title>Security Dashboard — VulnShop</title>
-            <style>
-              *{{margin:0;padding:0;box-sizing:border-box}}
-              body{{font-family:Segoe UI,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px}}
-              h1{{font-size:22px;font-weight:500;color:#f8fafc}}
-              .sub{{color:#94a3b8;font-size:13px;margin-top:4px}}
-              .grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0}}
-              .stat{{background:#1e293b;border-radius:10px;padding:16px;border:1px solid #334155}}
-              .stat .num{{font-size:32px;font-weight:500;margin-bottom:4px}}
-              .stat .lbl{{font-size:12px;color:#94a3b8}}
-              .tools{{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:24px}}
-              .tool{{background:#1e293b;border-radius:10px;padding:16px;border:1px solid #334155}}
-              .tool h3{{font-size:14px;font-weight:500;margin-bottom:8px;color:#f8fafc}}
-              .tool .meta{{font-size:12px;color:#94a3b8;margin-bottom:10px}}
-              .row{{display:flex;justify-content:space-between;align-items:center;margin-top:4px}}
-              .row span{{font-size:12px;color:#94a3b8}}
-              .row b{{font-size:13px}}
-              table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden;border:1px solid #334155}}
-              th{{background:#0f172a;padding:10px 14px;font-size:12px;font-weight:500;color:#94a3b8;text-align:left}}
-              td{{padding:10px 14px;font-size:12px;border-top:1px solid #334155}}
-              .c{{color:#ef4444}}.h{{color:#f97316}}.m{{color:#eab308}}.g{{color:#22c55e}}
-              h2{{font-size:16px;font-weight:500;color:#f8fafc;margin:20px 0 10px}}
-              footer{{text-align:center;color:#475569;font-size:11px;margin-top:24px}}
-            </style>
+          <meta charset="UTF-8">
+          <title>Security Dashboard — VulnShop</title>
+          <style>
+          *{{margin:0;padding:0;box-sizing:border-box}}
+          body{{font-family:Segoe UI,Arial,sans-serif;background:#0f172a;color:#e2e8f0;padding:28px;min-height:100vh}}
+          h1{{font-size:22px;font-weight:500;color:#f8fafc}}
+          .sub{{color:#64748b;font-size:13px;margin:4px 0 24px}}
+          .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}}
+          .stat{{background:#1e293b;border-radius:10px;padding:16px;border:1px solid #334155;text-align:center}}
+          .stat .n{{font-size:34px;font-weight:500;margin-bottom:2px}}
+          .stat .l{{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.5px}}
+          .tools{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:28px}}
+          .tool{{background:#1e293b;border-radius:10px;padding:16px;border:1px solid #334155}}
+          .tool h3{{font-size:13px;font-weight:500;color:#f8fafc;margin-bottom:4px}}
+          .tool .meta{{font-size:11px;color:#64748b;margin-bottom:10px}}
+          .row{{display:flex;justify-content:space-between;align-items:center;margin-top:6px}}
+          .row span{{font-size:12px;color:#94a3b8}}
+          .row b{{font-size:13px}}
+          h2{{font-size:15px;font-weight:500;color:#f8fafc;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #334155}}
+          table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden;border:1px solid #334155;font-size:12px}}
+          th{{background:#0f172a;padding:9px 10px;font-size:11px;font-weight:500;color:#64748b;text-align:left;text-transform:uppercase;letter-spacing:.4px}}
+          .summary-table td{{padding:10px 12px;border-top:1px solid #0f172a}}
+          .ok{{color:#22c55e;font-weight:500}}.ko{{color:#ef4444;font-weight:500}}
+          footer{{text-align:center;color:#334155;font-size:11px;margin-top:28px;padding-top:16px;border-top:1px solid #1e293b}}
+          </style>
           </head>
           <body>
-          <h1>🛡️ Security Dashboard — VulnShop</h1>
-          <div class="sub">Pipeline DevSecOps PFE · Généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')}</div>
+          <h1>Security Dashboard — VulnShop</h1>
+          <div class="sub">Pipeline DevSecOps · {datetime.now().strftime('%d/%m/%Y %H:%M')} · {grand_total} findings totaux</div>
 
-          <div class="grid">
-            <div class="stat"><div class="num" style="color:#60a5fa">{grand_total}</div><div class="lbl">Total findings</div></div>
-            <div class="stat"><div class="num" style="color:#ef4444">{trivy_crit + nuclei_crit}</div><div class="lbl">Critiques</div></div>
-            <div class="stat"><div class="num" style="color:#f97316">{trivy_high + nuclei_high + len(sem_high) + zap_high}</div><div class="lbl">Élevés</div></div>
-            <div class="stat"><div class="num" style="color:#eab308">{trivy_med + nuclei_med + len(sem_med) + zap_med}</div><div class="lbl">Moyens</div></div>
+          <div class="stats">
+            <div class="stat"><div class="n" style="color:#60a5fa">{grand_total}</div><div class="l">Total</div></div>
+            <div class="stat"><div class="n" style="color:#ef4444">{grand_crit}</div><div class="l">Critical</div></div>
+            <div class="stat"><div class="n" style="color:#f97316">{grand_high}</div><div class="l">High</div></div>
+            <div class="stat"><div class="n" style="color:#eab308">{grand_med}</div><div class="l">Medium</div></div>
           </div>
 
           <div class="tools">
             <div class="tool">
-              <h3>🔍 SAST — Semgrep</h3>
-              <div class="meta">{sem_total} findings dans le code source</div>
-              <div class="row"><span>High (ERROR)</span><b class="h">{len(sem_high)}</b></div>
+              <h3>SAST — Semgrep</h3>
+              <div class="meta">{sem_total} findings · code source</div>
+              <div class="row"><span>High (ERROR)</span><b style="color:#f97316">{len(sem_high)}</b></div>
               {bar(len(sem_high), sem_total or 1, '#f97316')}
-              <div class="row"><span>Medium (WARNING)</span><b class="m">{len(sem_med)}</b></div>
+              <div class="row"><span>Medium (WARNING)</span><b style="color:#eab308">{len(sem_med)}</b></div>
               {bar(len(sem_med), sem_total or 1, '#eab308')}
             </div>
             <div class="tool">
-              <h3>🌐 DAST — ZAP</h3>
-              <div class="meta">{zap_total} alertes sur l'application live</div>
-              <div class="row"><span>High risk</span><b class="h">{zap_high}</b></div>
-              {bar(zap_high, zap_total or 1, '#f97316')}
-              <div class="row"><span>Medium risk</span><b class="m">{zap_med}</b></div>
-              {bar(zap_med, zap_total or 1, '#eab308')}
+              <h3>DAST — OWASP ZAP</h3>
+              <div class="meta">{zap_total} alertes · application live</div>
+              <div class="row"><span>High risk</span><b style="color:#f97316">{zap_high_count}</b></div>
+              {bar(zap_high_count, zap_total or 1, '#f97316')}
+              <div class="row"><span>Medium risk</span><b style="color:#eab308">{zap_med_count}</b></div>
+              {bar(zap_med_count, zap_total or 1, '#eab308')}
             </div>
             <div class="tool">
-              <h3>🎯 DAST — Nuclei</h3>
-              <div class="meta">{nuc_total} vulnérabilités détectées</div>
-              <div class="row"><span>Critical</span><b class="c">{nuclei_crit}</b></div>
+              <h3>DAST — Nuclei</h3>
+              <div class="meta">{nuc_total} findings · templates CVE</div>
+              <div class="row"><span>Critical</span><b style="color:#ef4444">{nuclei_crit}</b></div>
               {bar(nuclei_crit, nuc_total or 1, '#ef4444')}
-              <div class="row"><span>High</span><b class="h">{nuclei_high}</b></div>
+              <div class="row"><span>High</span><b style="color:#f97316">{nuclei_high}</b></div>
               {bar(nuclei_high, nuc_total or 1, '#f97316')}
-              <div class="row"><span>Medium</span><b class="m">{nuclei_med}</b></div>
+              <div class="row"><span>Medium</span><b style="color:#eab308">{nuclei_med}</b></div>
               {bar(nuclei_med, nuc_total or 1, '#eab308')}
             </div>
             <div class="tool">
-              <h3>📦 SCA + Image — Trivy</h3>
-              <div class="meta">{trivy_total} CVE (dépendances + image Docker)</div>
-              <div class="row"><span>Critical</span><b class="c">{trivy_crit}</b></div>
+              <h3>SCA + Image — Trivy</h3>
+              <div class="meta">{trivy_total} CVE · deps + Docker image</div>
+              <div class="row"><span>Critical</span><b style="color:#ef4444">{trivy_crit}</b></div>
               {bar(trivy_crit, trivy_total or 1, '#ef4444')}
-              <div class="row"><span>High</span><b class="h">{trivy_high}</b></div>
+              <div class="row"><span>High</span><b style="color:#f97316">{trivy_high}</b></div>
               {bar(trivy_high, trivy_total or 1, '#f97316')}
-              <div class="row"><span>Medium</span><b class="m">{trivy_med}</b></div>
+              <div class="row"><span>Medium</span><b style="color:#eab308">{trivy_med}</b></div>
               {bar(trivy_med, trivy_total or 1, '#eab308')}
             </div>
           </div>
 
           <h2>Récapitulatif par outil</h2>
+          <table class="summary-table" style="margin-bottom:28px">
+            <tr><th>#</th><th>Outil</th><th>Type</th><th>Critical</th><th>High</th><th>Medium</th><th>Total</th><th>Statut</th></tr>
+            <tr><td style="padding:10px 12px;color:#94a3b8">1</td><td style="padding:10px 12px">Semgrep</td><td style="padding:10px 12px;color:#64748b">SAST</td><td style="padding:10px 12px">—</td><td style="padding:10px 12px;color:#f97316"><b>{len(sem_high)}</b></td><td style="padding:10px 12px;color:#eab308">{len(sem_med)}</td><td style="padding:10px 12px">{sem_total}</td><td style="padding:10px 12px"><span class="{"ok" if sem_total<=50 else "ko"}">{"OK" if sem_total<=50 else "KO"}</span></td></tr>
+            <tr><td style="padding:10px 12px;color:#94a3b8">2</td><td style="padding:10px 12px">ZAP</td><td style="padding:10px 12px;color:#64748b">DAST</td><td style="padding:10px 12px">—</td><td style="padding:10px 12px;color:#f97316"><b>{zap_high_count}</b></td><td style="padding:10px 12px;color:#eab308">{zap_med_count}</td><td style="padding:10px 12px">{zap_total}</td><td style="padding:10px 12px"><span class="{"ok" if zap_high_count<=5 else "ko"}">{"OK" if zap_high_count<=5 else "KO"}</span></td></tr>
+            <tr><td style="padding:10px 12px;color:#94a3b8">3</td><td style="padding:10px 12px">Nuclei</td><td style="padding:10px 12px;color:#64748b">DAST</td><td style="padding:10px 12px;color:#ef4444"><b>{nuclei_crit}</b></td><td style="padding:10px 12px;color:#f97316">{nuclei_high}</td><td style="padding:10px 12px;color:#eab308">{nuclei_med}</td><td style="padding:10px 12px">{nuc_total}</td><td style="padding:10px 12px"><span class="{"ko" if nuclei_crit>0 else "ok"}">{"KO" if nuclei_crit>0 else "OK"}</span></td></tr>
+            <tr><td style="padding:10px 12px;color:#94a3b8">4</td><td style="padding:10px 12px">Trivy</td><td style="padding:10px 12px;color:#64748b">SCA</td><td style="padding:10px 12px;color:#ef4444"><b>{trivy_crit}</b></td><td style="padding:10px 12px;color:#f97316">{trivy_high}</td><td style="padding:10px 12px;color:#eab308">{trivy_med}</td><td style="padding:10px 12px">{trivy_total}</td><td style="padding:10px 12px"><span class="{"ko" if trivy_crit>0 else "ok"}">{"KO" if trivy_crit>0 else "OK"}</span></td></tr>
+          </table>
+
+          <h2>Findings Critical & High — tous outils ({len(all_critical_high)})</h2>
           <table>
-            <tr><th>Outil</th><th>Type</th><th>Critical</th><th>High</th><th>Medium</th><th>Total</th><th>Statut</th></tr>
-            <tr><td>Semgrep</td><td>SAST</td><td>—</td><td class="h"><b>{len(sem_high)}</b></td><td class="m">{len(sem_med)}</td><td>{sem_total}</td><td>{"⚠️ KO" if sem_total > 50 else "✅ OK"}</td></tr>
-            <tr><td>ZAP</td><td>DAST</td><td>—</td><td class="h"><b>{zap_high}</b></td><td class="m">{zap_med}</td><td>{zap_total}</td><td>{"⚠️ KO" if zap_high > 5 else "✅ OK"}</td></tr>
-            <tr><td>Nuclei</td><td>DAST</td><td class="c"><b>{nuclei_crit}</b></td><td class="h">{nuclei_high}</td><td class="m">{nuclei_med}</td><td>{nuc_total}</td><td>{"⚠️ KO" if nuclei_crit > 0 else "✅ OK"}</td></tr>
-            <tr><td>Trivy (SCA)</td><td>SCA</td><td class="c"><b>{trivy_crit}</b></td><td class="h">{trivy_high}</td><td class="m">{trivy_med}</td><td>{trivy_total}</td><td>{"⚠️ KO" if trivy_crit > 0 else "✅ OK"}</td></tr>
+            <thead><tr>
+              <th>#</th><th>Outil</th><th>Sévérité</th><th>ID / CVE</th>
+              <th>Composant / Règle</th><th>Description</th><th>Référence</th>
+            </tr></thead>
+            <tbody>{rows if rows else '<tr><td colspan="7" style="padding:16px;text-align:center;color:#64748b">Aucun finding critical/high détecté</td></tr>'}</tbody>
           </table>
 
           <footer>VulnShop DevSecOps PFE · Juice Shop · {datetime.now().strftime('%Y')}</footer>
@@ -784,7 +915,8 @@ jobs:
 
           with open("security-dashboard.html", "w") as f:
               f.write(html)
-          print(f"Dashboard généré — {grand_total} findings au total")
+
+          print(f"[OK] Dashboard généré : {grand_total} findings, {len(all_critical_high)} critical/high dans le tableau")
           EOF
 
       - name: Upload Dashboard
