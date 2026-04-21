@@ -431,97 +431,130 @@ jobs:
 
           image = load("reports/trivy/trivy-image.json")
           sca   = load("reports/trivy/trivy-sca.json")
-
           findings = []
+
+          def cve_link(vuln_id):
+              # NVD est toujours valide pour les CVE
+              if vuln_id.startswith("CVE-"):
+                  return f"https://nvd.nist.gov/vuln/detail/{vuln_id}"
+              # GHSA et autres → OSV
+              return f"https://osv.dev/vulnerability/{vuln_id}"
 
           def parse(data, source):
               for r in data.get("Results", []):
                   for v in r.get("Vulnerabilities", []):
+                      vid = v.get("VulnerabilityID", "")
                       findings.append({
-                          "source": source,
-                          "pkg": v.get("PkgName"),
-                          "id": v.get("VulnerabilityID"),
-                          "severity": v.get("Severity"),
-                          "installed": v.get("InstalledVersion"),
-                          "fixed": v.get("FixedVersion", "-"),
-                          "url": v.get("PrimaryURL", "")
+                          "source":    source,
+                          "pkg":       v.get("PkgName", ""),
+                          "id":        vid,
+                          "severity":  v.get("Severity", ""),
+                          "installed": v.get("InstalledVersion", ""),
+                          "fixed":     v.get("FixedVersion", "—"),
+                          "link":      cve_link(vid)
                       })
 
           parse(image, "IMAGE")
           parse(sca, "SCA")
 
           total = len(findings)
-          crit = len([f for f in findings if f["severity"] == "CRITICAL"])
-          high = len([f for f in findings if f["severity"] == "HIGH"])
-          med  = len([f for f in findings if f["severity"] == "MEDIUM"])
+          crit  = len([f for f in findings if f["severity"] == "CRITICAL"])
+          high  = len([f for f in findings if f["severity"] == "HIGH"])
+          med   = len([f for f in findings if f["severity"] == "MEDIUM"])
 
-          html = f"""
-          <html>
+          sev_color = {"CRITICAL": "#ef4444", "HIGH": "#f97316", "MEDIUM": "#eab308", "LOW": "#94a3b8"}
+
+          html = f"""<!DOCTYPE html>
+          <html lang="fr">
           <head>
+          <meta charset="UTF-8">
           <title>Trivy Security Dashboard</title>
           <style>
-              body {{ font-family: Arial; background:#0f172a; color:white; padding:20px; }}
-              .grid {{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }}
-              .card {{ background:#1e293b; padding:15px; border-radius:10px; }}
-              .crit {{ color:#ef4444; }}
-              .high {{ color:#f97316; }}
-              .med {{ color:#eab308; }}
-              table {{ width:100%; border-collapse:collapse; margin-top:20px; }}
-              th,td {{ padding:10px; border-bottom:1px solid #334155; text-align:left; }}
-              th {{ background:#111827; }}
-              a {{ color:#60a5fa; }}
+            *{{margin:0;padding:0;box-sizing:border-box}}
+            body{{font-family:Segoe UI,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px}}
+            h1{{font-size:22px;font-weight:500}}
+            .sub{{color:#94a3b8;font-size:13px;margin:4px 0 20px}}
+            .grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}}
+            .card{{background:#1e293b;padding:16px;border-radius:10px;border:1px solid #334155}}
+            .card .num{{font-size:32px;font-weight:500;margin-bottom:2px}}
+            .card .lbl{{font-size:12px;color:#94a3b8}}
+            .filters{{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}}
+            .filters select,.filters input{{background:#1e293b;border:1px solid #334155;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:12px}}
+            table{{width:100%;border-collapse:collapse;border-radius:10px;overflow:hidden;border:1px solid #334155}}
+            th{{background:#0f172a;padding:10px 12px;font-size:12px;color:#94a3b8;text-align:left;position:sticky;top:0}}
+            td{{padding:9px 12px;font-size:12px;border-top:1px solid #1e293b}}
+            tr:hover td{{background:#1e293b}}
+            .badge{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500}}
+            a{{color:#60a5fa;text-decoration:none}}
+            a:hover{{text-decoration:underline}}
+            code{{background:#0f172a;padding:2px 6px;border-radius:4px;font-size:11px}}
+            footer{{text-align:center;color:#475569;font-size:11px;margin-top:20px}}
           </style>
           </head>
-
           <body>
-
           <h1>🛡️ Trivy Security Dashboard</h1>
-          <p>Generated: {datetime.now()}</p>
+          <div class="sub">Généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')} · {total} vulnérabilités</div>
 
           <div class="grid">
-              <div class="card">Total<br><h2>{total}</h2></div>
-              <div class="card crit">Critical<br><h2>{crit}</h2></div>
-              <div class="card high">High<br><h2>{high}</h2></div>
-              <div class="card med">Medium<br><h2>{med}</h2></div>
+            <div class="card"><div class="num" style="color:#60a5fa">{total}</div><div class="lbl">Total</div></div>
+            <div class="card"><div class="num" style="color:#ef4444">{crit}</div><div class="lbl">Critical</div></div>
+            <div class="card"><div class="num" style="color:#f97316">{high}</div><div class="lbl">High</div></div>
+            <div class="card"><div class="num" style="color:#eab308">{med}</div><div class="lbl">Medium</div></div>
           </div>
 
-          <h2>Vulnerabilities</h2>
-          <table>
-              <tr>
-                  <th>Source</th>
-                  <th>Package</th>
-                  <th>CVE</th>
-                  <th>Severity</th>
-                  <th>Installed</th>
-                  <th>Fixed</th>
-                  <th>Link</th>
-              </tr>
+          <div class="filters">
+            <select id="sev-filter" onchange="filter()">
+              <option value="">Toutes sévérités</option>
+              <option>CRITICAL</option><option>HIGH</option><option>MEDIUM</option><option>LOW</option>
+            </select>
+            <select id="src-filter" onchange="filter()">
+              <option value="">Toutes sources</option>
+              <option>IMAGE</option><option>SCA</option>
+            </select>
+            <input id="search" type="text" placeholder="Rechercher package / CVE…" oninput="filter()">
+          </div>
+
+          <table id="vuln-table">
+            <thead><tr>
+              <th>Source</th><th>Package</th><th>CVE / ID</th>
+              <th>Sévérité</th><th>Installée</th><th>Corrigée en</th><th>Lien NVD</th>
+            </tr></thead>
+            <tbody>
           """
 
           for f in findings:
+              color = sev_color.get(f["severity"], "#94a3b8")
               html += f"""
-              <tr>
-                  <td>{f['source']}</td>
-                  <td>{f['pkg']}</td>
-                  <td>{f['id']}</td>
-                  <td>{f['severity']}</td>
-                  <td>{f['installed']}</td>
-                  <td>{f['fixed']}</td>
-                  <td><a href="{f['url']}" target="_blank">CVE</a></td>
-              </tr>
-              """
+            <tr data-sev="{f['severity']}" data-src="{f['source']}" data-txt="{f['pkg'].lower()} {f['id'].lower()}">
+              <td><code>{f['source']}</code></td>
+              <td>{f['pkg']}</td>
+              <td><code>{f['id']}</code></td>
+              <td><span class="badge" style="background:{color}22;color:{color}">{f['severity']}</span></td>
+              <td>{f['installed']}</td>
+              <td>{"<b style='color:#22c55e'>"+f['fixed']+"</b>" if f['fixed'] != "—" else "<span style='color:#64748b'>—</span>"}</td>
+              <td><a href="{f['link']}" target="_blank">🔗 détails</a></td>
+            </tr>"""
 
           html += """
+            </tbody>
           </table>
-
-          </body>
-          </html>
-          """
+          <footer>Trivy · VulnShop DevSecOps PFE</footer>
+          <script>
+          function filter(){
+            var sev=document.getElementById('sev-filter').value;
+            var src=document.getElementById('src-filter').value;
+            var q=document.getElementById('search').value.toLowerCase();
+            document.querySelectorAll('#vuln-table tbody tr').forEach(function(r){
+              var ok=(!sev||r.dataset.sev===sev)&&(!src||r.dataset.src===src)&&(!q||r.dataset.txt.includes(q));
+              r.style.display=ok?'':'none';
+            });
+          }
+          </script>
+          </body></html>"""
 
           with open("reports/trivy/dashboard.html", "w") as f:
               f.write(html)
-
-          print("Dashboard generated successfully")
+          print(f"Dashboard Trivy généré — {total} CVE")
           EOF
 
     # ═══════════════════════════════
@@ -539,7 +572,6 @@ jobs:
   generate-dashboard:
     name: Generate Security Dashboard
     runs-on: ubuntu-latest
-    # Mise à jour critique des 'needs' pour correspondre à ton job fusionné
     needs: [sast-semgrep, iac-checkov, trivy-scan, dast-scan]
     if: always()
     steps:
@@ -549,37 +581,27 @@ jobs:
       - name: Create reports directory
         run: mkdir -p reports
 
-      # --- RÉCUPÉRATION DES ARTEFACTS ---
       - name: Download Semgrep Report
         uses: actions/download-artifact@v4
         with:
-          name: semgrep-security-report
+          name: semgrep-sast-report          # ← corrigé (était semgrep-security-report)
           path: reports/semgrep
         continue-on-error: true
 
-      # On télécharge l'artifact unique du job fusionné
       - name: Download DAST Reports (ZAP & Nuclei)
         uses: actions/download-artifact@v4
         with:
           name: full-dast-security-reports
           path: reports/dast-combined
-        continue-on-error: true 
-
-      - name: Download Dependency Check Report
-        uses: actions/download-artifact@v4
-        with:
-          name: dependency-check-report
-          path: reports/depcheck
         continue-on-error: true
 
       - name: Download Trivy Report
         uses: actions/download-artifact@v4
         with:
-          name: trivy-report
+          name: trivy-security-report        # ← corrigé (était trivy-report)
           path: reports/trivy
         continue-on-error: true
 
-      # --- GÉNÉRATION DU DASHBOARD ---
       - name: Generate HTML Dashboard
         run: |
           python3 << 'EOF'
@@ -595,69 +617,153 @@ jobs:
 
           # 1. SAST - Semgrep
           sem_data = load_json("reports/semgrep/**/*.json")
-          sem_count = len(sem_data.get("results", [])) if sem_data else 0
+          sem_results = sem_data.get("results", []) if sem_data else []
+          sem_high    = [r for r in sem_results if r["extra"]["severity"] == "ERROR"]
+          sem_med     = [r for r in sem_results if r["extra"]["severity"] == "WARNING"]
 
-          # 2. DAST COMBINÉ (ZAP & Nuclei)
-          # On cherche dans le sous-dossier défini par ton job fusionné
+          # 2. DAST - ZAP
           zap_data = load_json("reports/dast-combined/**/report_json.json")
-          zap_high = 0
+          zap_high = zap_med = 0
           if zap_data:
               for site in zap_data.get("site", []):
                   for alert in site.get("alerts", []):
-                      if alert.get("riskcode") == "3": zap_high += 1
+                      rc = alert.get("riskcode", "0")
+                      if rc == "3": zap_high += 1
+                      elif rc == "2": zap_med += 1
 
+          # 3. DAST - Nuclei
           nuclei_path = glob.glob("reports/dast-combined/**/nuclei-report.json", recursive=True)
-          nuclei_crit = 0
+          nuclei_crit = nuclei_high = nuclei_med = 0
           if nuclei_path:
               with open(nuclei_path[0], 'r') as f:
                   for line in f:
                       try:
-                          n_vuln = json.loads(line)
-                          if n_vuln.get("info", {}).get("severity") in ["critical", "high"]:
-                              nuclei_crit += 1
+                          sev = json.loads(line).get("info", {}).get("severity", "")
+                          if sev == "critical": nuclei_crit += 1
+                          elif sev == "high":   nuclei_high += 1
+                          elif sev == "medium": nuclei_med  += 1
                       except: continue
 
-          # 3. SCA - Trivy
-          trivy_data = load_json("reports/trivy/**/*.json")
-          trivy_count = 0
-          if trivy_data:
-              for res in trivy_data.get("Results", []):
-                  trivy_count += len(res.get("Vulnerabilities", []))
+          # 4. SCA + Image - Trivy (deux fichiers séparés)
+          trivy_sca   = load_json("reports/trivy/trivy-sca.json")
+          trivy_image = load_json("reports/trivy/trivy-image.json")
+          trivy_crit = trivy_high = trivy_med = 0
+          for td in [trivy_sca, trivy_image]:
+              if not td: continue
+              for res in td.get("Results", []):
+                  for v in res.get("Vulnerabilities", []):
+                      sev = v.get("Severity", "")
+                      if sev == "CRITICAL": trivy_crit += 1
+                      elif sev == "HIGH":   trivy_high += 1
+                      elif sev == "MEDIUM": trivy_med  += 1
 
-          # HTML TEMPLATE
-          html = f"""
-          <html>
-          <head><style>
-              body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 40px; background: #f0f2f5; }}
-              .card {{ background: white; border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
-              .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }}
-              .header {{ background: #2c3e50; color: white; padding: 20px; border-radius: 10px; margin-bottom: 30px; }}
-              .critical {{ color: #e74c3c; font-weight: bold; }}
-          </style></head>
+          trivy_total = trivy_crit + trivy_high + trivy_med
+          sem_total   = len(sem_results)
+          zap_total   = zap_high + zap_med
+          nuc_total   = nuclei_crit + nuclei_high + nuclei_med
+          grand_total = sem_total + zap_total + nuc_total + trivy_total
+
+          def bar(val, maxi, color):
+              pct = int((val / maxi) * 100) if maxi > 0 else 0
+              return f'<div style="height:6px;background:#e2e8f0;border-radius:3px;margin-top:6px"><div style="height:6px;width:{pct}%;background:{color};border-radius:3px"></div></div>'
+
+          def badge(label, val, color, bg):
+              return f'<span style="background:{bg};color:{color};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:500;margin-right:4px">{label}: {val}</span>'
+
+          html = f"""<!DOCTYPE html>
+          <html lang="fr">
+          <head>
+            <meta charset="UTF-8">
+            <title>Security Dashboard — VulnShop</title>
+            <style>
+              *{{margin:0;padding:0;box-sizing:border-box}}
+              body{{font-family:Segoe UI,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px}}
+              h1{{font-size:22px;font-weight:500;color:#f8fafc}}
+              .sub{{color:#94a3b8;font-size:13px;margin-top:4px}}
+              .grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0}}
+              .stat{{background:#1e293b;border-radius:10px;padding:16px;border:1px solid #334155}}
+              .stat .num{{font-size:32px;font-weight:500;margin-bottom:4px}}
+              .stat .lbl{{font-size:12px;color:#94a3b8}}
+              .tools{{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:24px}}
+              .tool{{background:#1e293b;border-radius:10px;padding:16px;border:1px solid #334155}}
+              .tool h3{{font-size:14px;font-weight:500;margin-bottom:8px;color:#f8fafc}}
+              .tool .meta{{font-size:12px;color:#94a3b8;margin-bottom:10px}}
+              .row{{display:flex;justify-content:space-between;align-items:center;margin-top:4px}}
+              .row span{{font-size:12px;color:#94a3b8}}
+              .row b{{font-size:13px}}
+              table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden;border:1px solid #334155}}
+              th{{background:#0f172a;padding:10px 14px;font-size:12px;font-weight:500;color:#94a3b8;text-align:left}}
+              td{{padding:10px 14px;font-size:12px;border-top:1px solid #334155}}
+              .c{{color:#ef4444}}.h{{color:#f97316}}.m{{color:#eab308}}.g{{color:#22c55e}}
+              h2{{font-size:16px;font-weight:500;color:#f8fafc;margin:20px 0 10px}}
+              footer{{text-align:center;color:#475569;font-size:11px;margin-top:24px}}
+            </style>
+          </head>
           <body>
-              <div class="header">
-                  <h1>🛡️ Rapport de Sécurité Juice Shop</h1>
-                  <p>Date du scan : {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
-              </div>
-              <div class="grid">
-                  <div class="card">
-                      <h3>🔍 Analyse SAST</h3>
-                      <p>Vulnérabilités Semgrep : <b>{sem_count}</b></p>
-                  </div>
-                  <div class="card">
-                      <h3>🌐 Analyse DAST (Combinée)</h3>
-                      <p>ZAP High Risk : <span class="critical">{zap_high}</span></p>
-                      <p>Nuclei Critical/High : <span class="critical">{nuclei_crit}</span></p>
-                  </div>
-                  <div class="card">
-                      <h3>📦 Dépendances & Image</h3>
-                      <p>Failles trouvées (Trivy) : <b>{trivy_count}</b></p>
-                  </div>
-              </div>
-          </body></html>
-          """
+          <h1>🛡️ Security Dashboard — VulnShop</h1>
+          <div class="sub">Pipeline DevSecOps PFE · Généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')}</div>
+
+          <div class="grid">
+            <div class="stat"><div class="num" style="color:#60a5fa">{grand_total}</div><div class="lbl">Total findings</div></div>
+            <div class="stat"><div class="num" style="color:#ef4444">{trivy_crit + nuclei_crit}</div><div class="lbl">Critiques</div></div>
+            <div class="stat"><div class="num" style="color:#f97316">{trivy_high + nuclei_high + len(sem_high) + zap_high}</div><div class="lbl">Élevés</div></div>
+            <div class="stat"><div class="num" style="color:#eab308">{trivy_med + nuclei_med + len(sem_med) + zap_med}</div><div class="lbl">Moyens</div></div>
+          </div>
+
+          <div class="tools">
+            <div class="tool">
+              <h3>🔍 SAST — Semgrep</h3>
+              <div class="meta">{sem_total} findings dans le code source</div>
+              <div class="row"><span>High (ERROR)</span><b class="h">{len(sem_high)}</b></div>
+              {bar(len(sem_high), sem_total or 1, '#f97316')}
+              <div class="row"><span>Medium (WARNING)</span><b class="m">{len(sem_med)}</b></div>
+              {bar(len(sem_med), sem_total or 1, '#eab308')}
+            </div>
+            <div class="tool">
+              <h3>🌐 DAST — ZAP</h3>
+              <div class="meta">{zap_total} alertes sur l'application live</div>
+              <div class="row"><span>High risk</span><b class="h">{zap_high}</b></div>
+              {bar(zap_high, zap_total or 1, '#f97316')}
+              <div class="row"><span>Medium risk</span><b class="m">{zap_med}</b></div>
+              {bar(zap_med, zap_total or 1, '#eab308')}
+            </div>
+            <div class="tool">
+              <h3>🎯 DAST — Nuclei</h3>
+              <div class="meta">{nuc_total} vulnérabilités détectées</div>
+              <div class="row"><span>Critical</span><b class="c">{nuclei_crit}</b></div>
+              {bar(nuclei_crit, nuc_total or 1, '#ef4444')}
+              <div class="row"><span>High</span><b class="h">{nuclei_high}</b></div>
+              {bar(nuclei_high, nuc_total or 1, '#f97316')}
+              <div class="row"><span>Medium</span><b class="m">{nuclei_med}</b></div>
+              {bar(nuclei_med, nuc_total or 1, '#eab308')}
+            </div>
+            <div class="tool">
+              <h3>📦 SCA + Image — Trivy</h3>
+              <div class="meta">{trivy_total} CVE (dépendances + image Docker)</div>
+              <div class="row"><span>Critical</span><b class="c">{trivy_crit}</b></div>
+              {bar(trivy_crit, trivy_total or 1, '#ef4444')}
+              <div class="row"><span>High</span><b class="h">{trivy_high}</b></div>
+              {bar(trivy_high, trivy_total or 1, '#f97316')}
+              <div class="row"><span>Medium</span><b class="m">{trivy_med}</b></div>
+              {bar(trivy_med, trivy_total or 1, '#eab308')}
+            </div>
+          </div>
+
+          <h2>Récapitulatif par outil</h2>
+          <table>
+            <tr><th>Outil</th><th>Type</th><th>Critical</th><th>High</th><th>Medium</th><th>Total</th><th>Statut</th></tr>
+            <tr><td>Semgrep</td><td>SAST</td><td>—</td><td class="h"><b>{len(sem_high)}</b></td><td class="m">{len(sem_med)}</td><td>{sem_total}</td><td>{"⚠️ KO" if sem_total > 50 else "✅ OK"}</td></tr>
+            <tr><td>ZAP</td><td>DAST</td><td>—</td><td class="h"><b>{zap_high}</b></td><td class="m">{zap_med}</td><td>{zap_total}</td><td>{"⚠️ KO" if zap_high > 5 else "✅ OK"}</td></tr>
+            <tr><td>Nuclei</td><td>DAST</td><td class="c"><b>{nuclei_crit}</b></td><td class="h">{nuclei_high}</td><td class="m">{nuclei_med}</td><td>{nuc_total}</td><td>{"⚠️ KO" if nuclei_crit > 0 else "✅ OK"}</td></tr>
+            <tr><td>Trivy (SCA)</td><td>SCA</td><td class="c"><b>{trivy_crit}</b></td><td class="h">{trivy_high}</td><td class="m">{trivy_med}</td><td>{trivy_total}</td><td>{"⚠️ KO" if trivy_crit > 0 else "✅ OK"}</td></tr>
+          </table>
+
+          <footer>VulnShop DevSecOps PFE · Juice Shop · {datetime.now().strftime('%Y')}</footer>
+          </body></html>"""
+
           with open("security-dashboard.html", "w") as f:
               f.write(html)
+          print(f"Dashboard généré — {grand_total} findings au total")
           EOF
 
       - name: Upload Dashboard
