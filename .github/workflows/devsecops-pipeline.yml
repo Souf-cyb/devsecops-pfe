@@ -615,6 +615,7 @@ jobs:
           def load_json_file(pattern):
               files = glob.glob(pattern, recursive=True)
               if not files:
+                  print(f"[WARN] Aucun fichier trouvé pour: {pattern}")
                   return None
               try:
                   with open(files[0], 'r', encoding='utf-8', errors='replace') as f:
@@ -624,9 +625,9 @@ jobs:
                   return None
 
           def load_jsonlines(pattern):
-              """Nuclei écrit un objet JSON par ligne, pas un tableau."""
               files = glob.glob(pattern, recursive=True)
               if not files:
+                  print(f"[WARN] Aucun fichier trouvé pour: {pattern}")
                   return []
               results = []
               with open(files[0], 'r', encoding='utf-8', errors='replace') as f:
@@ -641,11 +642,11 @@ jobs:
               return results
 
           def cve_link(vid):
-              if vid.startswith("CVE-"):
+              if str(vid).startswith("CVE-"):
                   return f"https://nvd.nist.gov/vuln/detail/{vid}"
               return f"https://osv.dev/vulnerability/{vid}"
 
-          # ── DEBUG : lister les fichiers trouvés ──────────────────────────
+          # ── DEBUG ────────────────────────────────────────────────────────
           for pat in ["reports/**/*.json", "reports/**/*.html"]:
               found = glob.glob(pat, recursive=True)
               print(f"[DEBUG] {pat} => {found}")
@@ -653,89 +654,137 @@ jobs:
           # ════════════════════════════════════════════════════════════════
           # 1. SAST — Semgrep
           # ════════════════════════════════════════════════════════════════
-          sem_data    = load_json_file("reports/semgrep/**/*.json")
-          sem_results = sem_data.get("results", []) if sem_data else []
-          sem_high    = [r for r in sem_results if r.get("extra", {}).get("severity") == "ERROR"]
-          sem_med     = [r for r in sem_results if r.get("extra", {}).get("severity") == "WARNING"]
+          sem_raw = load_json_file("reports/semgrep/**/*.json")
+          # Semgrep retourne soit un dict {"results":[...]} soit directement une liste
+          if isinstance(sem_raw, list):
+              sem_results = sem_raw
+          elif isinstance(sem_raw, dict):
+              sem_results = sem_raw.get("results", [])
+          else:
+              sem_results = []
+
+          sem_high = [r for r in sem_results if r.get("extra", {}).get("severity") == "ERROR"]
+          sem_med  = [r for r in sem_results if r.get("extra", {}).get("severity") == "WARNING"]
 
           sem_findings = []
           for r in sem_high:
-              meta  = r.get("extra", {}).get("metadata", {})
-              cwes  = meta.get("cwe", [])
-              cwe   = cwes[0] if cwes else "N/A"
+              meta = r.get("extra", {}).get("metadata", {})
+              cwes = meta.get("cwe", [])
+              cwe  = cwes[0] if cwes else "N/A"
+              refs = meta.get("references", [])
               sem_findings.append({
-                  "tool": "Semgrep",
-                  "id": cwe,
+                  "tool":     "Semgrep",
+                  "id":       cwe,
                   "severity": "HIGH",
-                  "pkg": r.get("check_id", "").split(".")[-1],
-                  "file": f"{r.get('path','')}:{r.get('start',{}).get('line','')}",
-                  "desc": r.get("extra", {}).get("message", "")[:120],
-                  "link": meta.get("references", [None])[0] or ""
+                  "pkg":      r.get("check_id", "").split(".")[-1],
+                  "file":     f"{r.get('path','')}:{r.get('start',{}).get('line','')}",
+                  "desc":     r.get("extra", {}).get("message", "")[:120],
+                  "link":     refs[0] if refs else ""
               })
 
           # ════════════════════════════════════════════════════════════════
-          # 2. DAST — ZAP  (format: {"site":[{"alerts":[...]}]})
+          # 2. DAST — ZAP
+          # Le JSON ZAP peut être: un dict {"site":[...]}, une liste [{"site":[...]}],
+          # ou directement une liste d'alertes selon la version de ZAP
           # ════════════════════════════════════════════════════════════════
-          zap_data = load_json_file("reports/dast-combined/**/zap-report.json")
+          zap_raw = load_json_file("reports/dast-combined/**/zap-report.json")
           zap_high_count = zap_med_count = 0
           zap_findings = []
 
-          if zap_data:
-              sites = zap_data.get("site", [])
-              if isinstance(sites, dict):   # parfois un seul objet et non liste
-                  sites = [sites]
+          # Normalisation: on extrait toujours une liste de sites
+          if zap_raw is not None:
+              if isinstance(zap_raw, list):
+                  # Cas 1: la racine est une liste — soit de sites, soit d'alertes directement
+                  if len(zap_raw) > 0 and isinstance(zap_raw[0], dict) and "alerts" in zap_raw[0]:
+                      # Liste de sites: [{"alerts":[...]}, ...]
+                      sites = zap_raw
+                  elif len(zap_raw) > 0 and isinstance(zap_raw[0], dict) and "site" in zap_raw[0]:
+                      # Liste d'objets wrappés: [{"site":[...]}, ...]
+                      sites = []
+                      for item in zap_raw:
+                          s = item.get("site", [])
+                          sites.extend(s if isinstance(s, list) else [s])
+                  else:
+                      # Liste d'alertes brutes
+                      sites = [{"alerts": zap_raw}]
+              elif isinstance(zap_raw, dict):
+                  # Cas 2: la racine est un dict {"site": [...] ou {...}}
+                  s = zap_raw.get("site", [])
+                  if isinstance(s, list):
+                      sites = s
+                  elif isinstance(s, dict):
+                      sites = [s]
+                  else:
+                      sites = []
+              else:
+                  sites = []
+
               for site in sites:
+                  if not isinstance(site, dict):
+                      continue
                   alerts = site.get("alerts", [])
+                  if not isinstance(alerts, list):
+                      continue
                   for alert in alerts:
-                      rc   = str(alert.get("riskcode", "0"))
-                      name = alert.get("name", "")
-                      cweid = alert.get("cweid", "")
-                      desc  = alert.get("desc", "").replace("<p>","").replace("</p>","")[:120]
-                      ref   = alert.get("reference", "")
-                      uri   = ""
+                      if not isinstance(alert, dict):
+                          continue
+                      rc    = str(alert.get("riskcode", "0"))
+                      name  = alert.get("name", "")
+                      cweid = str(alert.get("cweid", "")).strip()
+                      desc  = str(alert.get("desc", "")).replace("<p>","").replace("</p>","").strip()[:120]
                       instances = alert.get("instances", [{}])
-                      if instances:
-                          uri = instances[0].get("uri", "")
+                      uri = ""
+                      if isinstance(instances, list) and len(instances) > 0:
+                          uri = instances[0].get("uri", "") if isinstance(instances[0], dict) else ""
+
                       if rc == "3":
                           zap_high_count += 1
                           zap_findings.append({
-                              "tool": "ZAP",
-                              "id": f"CWE-{cweid}" if cweid else name,
+                              "tool":     "ZAP",
+                              "id":       f"CWE-{cweid}" if cweid and cweid != "0" else name,
                               "severity": "HIGH",
-                              "pkg": name,
-                              "file": uri,
-                              "desc": desc,
-                              "link": f"https://cwe.mitre.org/data/definitions/{cweid}.html" if cweid else ""
+                              "pkg":      name,
+                              "file":     uri,
+                              "desc":     desc,
+                              "link":     f"https://cwe.mitre.org/data/definitions/{cweid}.html" if cweid and cweid != "0" else ""
                           })
                       elif rc == "2":
                           zap_med_count += 1
 
+          print(f"[DEBUG] ZAP: {zap_high_count} high, {zap_med_count} medium")
+
           # ════════════════════════════════════════════════════════════════
-          # 3. DAST — Nuclei  (JSON-lines : un objet par ligne)
+          # 3. DAST — Nuclei (JSON-lines)
           # ════════════════════════════════════════════════════════════════
           nuclei_items = load_jsonlines("reports/dast-combined/**/nuclei-report.json")
           nuclei_crit = nuclei_high = nuclei_med = 0
           nuclei_findings = []
 
           for item in nuclei_items:
-              info = item.get("info", {})
-              sev  = info.get("severity", "").lower()
-              vid  = item.get("template-id", info.get("name", ""))
-              desc = info.get("description", "")[:120]
-              url  = item.get("matched-at", item.get("host", ""))
-              tags = info.get("tags", [])
-              cvss = info.get("classification", {})
-              cve_ids = cvss.get("cve-id", [])
-              link = cve_link(cve_ids[0]) if cve_ids else ""
+              if not isinstance(item, dict):
+                  continue
+              info    = item.get("info", {}) if isinstance(item.get("info"), dict) else {}
+              sev     = str(info.get("severity", "")).lower()
+              vid     = item.get("template-id", info.get("name", ""))
+              desc    = str(info.get("description", ""))[:120]
+              url     = item.get("matched-at", item.get("host", ""))
+              classif = info.get("classification", {}) if isinstance(info.get("classification"), dict) else {}
+              cve_ids = classif.get("cve-id", [])
+              if isinstance(cve_ids, str):
+                  cve_ids = [cve_ids]
+              link    = cve_link(cve_ids[0]) if cve_ids else ""
+              vuln_id = cve_ids[0] if cve_ids else vid
 
               if sev == "critical":
                   nuclei_crit += 1
-                  nuclei_findings.append({"tool":"Nuclei","id":cve_ids[0] if cve_ids else vid,"severity":"CRITICAL","pkg":vid,"file":url,"desc":desc,"link":link})
+                  nuclei_findings.append({"tool":"Nuclei","id":vuln_id,"severity":"CRITICAL","pkg":vid,"file":url,"desc":desc,"link":link})
               elif sev == "high":
                   nuclei_high += 1
-                  nuclei_findings.append({"tool":"Nuclei","id":cve_ids[0] if cve_ids else vid,"severity":"HIGH","pkg":vid,"file":url,"desc":desc,"link":link})
+                  nuclei_findings.append({"tool":"Nuclei","id":vuln_id,"severity":"HIGH","pkg":vid,"file":url,"desc":desc,"link":link})
               elif sev == "medium":
                   nuclei_med += 1
+
+          print(f"[DEBUG] Nuclei: {nuclei_crit} critical, {nuclei_high} high, {nuclei_med} medium")
 
           # ════════════════════════════════════════════════════════════════
           # 4. SCA + Image — Trivy
@@ -745,53 +794,60 @@ jobs:
           trivy_crit = trivy_high = trivy_med = 0
           trivy_findings = []
 
-          for td in [trivy_sca, trivy_image]:
-              if not td:
+          for td, src in [(trivy_sca, "SCA"), (trivy_image, "IMAGE")]:
+              if not isinstance(td, dict):
                   continue
-              src = "IMAGE" if td is trivy_image else "SCA"
               for res in td.get("Results", []):
-                  for v in res.get("Vulnerabilities", []):
+                  if not isinstance(res, dict):
+                      continue
+                  for v in res.get("Vulnerabilities", []) or []:
+                      if not isinstance(v, dict):
+                          continue
                       sev = v.get("Severity", "")
                       vid = v.get("VulnerabilityID", "")
+                      entry = {
+                          "tool":     f"Trivy ({src})",
+                          "id":       vid,
+                          "severity": sev,
+                          "pkg":      v.get("PkgName", ""),
+                          "file":     v.get("InstalledVersion", ""),
+                          "desc":     str(v.get("Title", ""))[:120],
+                          "link":     cve_link(vid)
+                      }
                       if sev == "CRITICAL":
                           trivy_crit += 1
-                          trivy_findings.append({"tool":f"Trivy ({src})","id":vid,"severity":"CRITICAL","pkg":v.get("PkgName",""),"file":v.get("InstalledVersion",""),"desc":v.get("Title","")[:120],"link":cve_link(vid)})
+                          trivy_findings.append(entry)
                       elif sev == "HIGH":
                           trivy_high += 1
-                          trivy_findings.append({"tool":f"Trivy ({src})","id":vid,"severity":"HIGH","pkg":v.get("PkgName",""),"file":v.get("InstalledVersion",""),"desc":v.get("Title","")[:120],"link":cve_link(vid)})
+                          trivy_findings.append(entry)
                       elif sev == "MEDIUM":
                           trivy_med += 1
+
+          print(f"[DEBUG] Trivy: {trivy_crit} critical, {trivy_high} high, {trivy_med} medium")
 
           # ════════════════════════════════════════════════════════════════
           # Totaux
           # ════════════════════════════════════════════════════════════════
-          sem_total    = len(sem_results)
-          zap_total    = zap_high_count + zap_med_count
-          nuc_total    = nuclei_crit + nuclei_high + nuclei_med
-          trivy_total  = trivy_crit + trivy_high + trivy_med
-          grand_total  = sem_total + zap_total + nuc_total + trivy_total
-          grand_crit   = nuclei_crit + trivy_crit
-          grand_high   = len(sem_high) + zap_high_count + nuclei_high + trivy_high
-          grand_med    = len(sem_med)  + zap_med_count  + nuclei_med  + trivy_med
+          sem_total   = len(sem_results)
+          zap_total   = zap_high_count + zap_med_count
+          nuc_total   = nuclei_crit + nuclei_high + nuclei_med
+          trivy_total = trivy_crit + trivy_high + trivy_med
+          grand_total = sem_total + zap_total + nuc_total + trivy_total
+          grand_crit  = nuclei_crit + trivy_crit
+          grand_high  = len(sem_high) + zap_high_count + nuclei_high + trivy_high
+          grand_med   = len(sem_med)  + zap_med_count  + nuclei_med  + trivy_med
 
-          # Tous les findings Critical/High pour le tableau détaillé
-          all_critical_high = []
-          for f in sem_findings:
-              all_critical_high.append(f)
-          for f in zap_findings:
-              all_critical_high.append(f)
-          for f in nuclei_findings:
-              all_critical_high.append(f)
-          for f in trivy_findings:
-              all_critical_high.append(f)
+          all_critical_high = sem_findings + zap_findings + nuclei_findings + trivy_findings
+          all_critical_high.sort(key=lambda x: 0 if x["severity"] == "CRITICAL" else 1)
 
-          # Tri : Critical en premier
-          sev_order = {"CRITICAL": 0, "HIGH": 1}
-          all_critical_high.sort(key=lambda x: sev_order.get(x["severity"], 2))
+          print(f"[DEBUG] Total critical/high pour le tableau: {len(all_critical_high)}")
 
+          # ════════════════════════════════════════════════════════════════
+          # HTML
+          # ════════════════════════════════════════════════════════════════
           def bar(val, maxi, color):
               pct = int((val / maxi) * 100) if maxi > 0 else 0
-              return f'<div style="height:5px;background:#1e293b;border-radius:3px;margin-top:5px;border:1px solid #334155"><div style="height:5px;width:{pct}%;background:{color};border-radius:3px"></div></div>'
+              return f'<div style="height:5px;background:#0f172a;border-radius:3px;margin-top:5px"><div style="height:5px;width:{pct}%;background:{color};border-radius:3px"></div></div>'
 
           SEV_COLOR = {"CRITICAL": "#ef4444", "HIGH": "#f97316", "MEDIUM": "#eab308"}
 
@@ -799,28 +855,30 @@ jobs:
               c = SEV_COLOR.get(s, "#94a3b8")
               return f'<span style="background:{c}22;color:{c};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">{s}</span>'
 
+          def status(ok):
+              return '<span style="color:#22c55e;font-weight:500">OK</span>' if ok else '<span style="color:#ef4444;font-weight:500">KO</span>'
+
           rows = ""
           for i, f in enumerate(all_critical_high):
-              link_cell = f'<a href="{f["link"]}" target="_blank" style="color:#60a5fa;text-decoration:none">&#x1F517; NVD</a>' if f["link"] else "—"
-              rows += f"""
-              <tr style="border-top:1px solid #1e293b">
-                <td style="padding:8px 10px;font-size:11px;color:#94a3b8">{i+1}</td>
-                <td style="padding:8px 10px;font-size:11px"><code style="background:#0f172a;padding:1px 5px;border-radius:3px;color:#7dd3fc">{f["tool"]}</code></td>
-                <td style="padding:8px 10px;font-size:11px">{sev_badge(f["severity"])}</td>
-                <td style="padding:8px 10px;font-size:11px;color:#e2e8f0;font-weight:500">{f["id"]}</td>
-                <td style="padding:8px 10px;font-size:11px;color:#94a3b8">{f["pkg"]}</td>
-                <td style="padding:8px 10px;font-size:11px;color:#94a3b8;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{f["desc"]}</td>
+              link_cell = f'<a href="{f["link"]}" target="_blank" style="color:#60a5fa;text-decoration:none">&#x1F517; lien</a>' if f.get("link") else "—"
+              desc_safe = str(f.get("desc","")).replace("<","&lt;").replace(">","&gt;")
+              rows += f"""<tr style="border-top:1px solid #0f172a">
+                <td style="padding:8px 10px;color:#64748b">{i+1}</td>
+                <td style="padding:8px 10px"><code style="background:#0f172a;padding:2px 6px;border-radius:3px;color:#7dd3fc;font-size:10px">{f["tool"]}</code></td>
+                <td style="padding:8px 10px">{sev_badge(f["severity"])}</td>
+                <td style="padding:8px 10px;color:#f8fafc;font-weight:500;font-size:11px">{str(f["id"])[:40]}</td>
+                <td style="padding:8px 10px;color:#94a3b8;font-size:11px">{str(f["pkg"])[:35]}</td>
+                <td style="padding:8px 10px;color:#94a3b8;font-size:11px;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{desc_safe}</td>
                 <td style="padding:8px 10px;font-size:11px">{link_cell}</td>
               </tr>"""
 
           html = f"""<!DOCTYPE html>
-          <html lang="fr">
-          <head>
+          <html lang="fr"><head>
           <meta charset="UTF-8">
           <title>Security Dashboard — VulnShop</title>
           <style>
           *{{margin:0;padding:0;box-sizing:border-box}}
-          body{{font-family:Segoe UI,Arial,sans-serif;background:#0f172a;color:#e2e8f0;padding:28px;min-height:100vh}}
+          body{{font-family:Segoe UI,Arial,sans-serif;background:#0f172a;color:#e2e8f0;padding:28px}}
           h1{{font-size:22px;font-weight:500;color:#f8fafc}}
           .sub{{color:#64748b;font-size:13px;margin:4px 0 24px}}
           .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}}
@@ -829,20 +887,17 @@ jobs:
           .stat .l{{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.5px}}
           .tools{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:28px}}
           .tool{{background:#1e293b;border-radius:10px;padding:16px;border:1px solid #334155}}
-          .tool h3{{font-size:13px;font-weight:500;color:#f8fafc;margin-bottom:4px}}
+          .tool h3{{font-size:13px;font-weight:500;color:#f8fafc;margin-bottom:3px}}
           .tool .meta{{font-size:11px;color:#64748b;margin-bottom:10px}}
           .row{{display:flex;justify-content:space-between;align-items:center;margin-top:6px}}
           .row span{{font-size:12px;color:#94a3b8}}
           .row b{{font-size:13px}}
           h2{{font-size:15px;font-weight:500;color:#f8fafc;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #334155}}
-          table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden;border:1px solid #334155;font-size:12px}}
-          th{{background:#0f172a;padding:9px 10px;font-size:11px;font-weight:500;color:#64748b;text-align:left;text-transform:uppercase;letter-spacing:.4px}}
-          .summary-table td{{padding:10px 12px;border-top:1px solid #0f172a}}
-          .ok{{color:#22c55e;font-weight:500}}.ko{{color:#ef4444;font-weight:500}}
-          footer{{text-align:center;color:#334155;font-size:11px;margin-top:28px;padding-top:16px;border-top:1px solid #1e293b}}
-          </style>
-          </head>
-          <body>
+          table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden;border:1px solid #334155;font-size:12px;margin-bottom:28px}}
+          th{{background:#0f172a;padding:9px 10px;font-size:10px;font-weight:500;color:#64748b;text-align:left;text-transform:uppercase;letter-spacing:.4px}}
+          .st td{{padding:10px 12px;border-top:1px solid #0f172a}}
+          footer{{text-align:center;color:#334155;font-size:11px;margin-top:16px;padding-top:16px;border-top:1px solid #1e293b}}
+          </style></head><body>
           <h1>Security Dashboard — VulnShop</h1>
           <div class="sub">Pipeline DevSecOps · {datetime.now().strftime('%d/%m/%Y %H:%M')} · {grand_total} findings totaux</div>
 
@@ -893,21 +948,21 @@ jobs:
           </div>
 
           <h2>Récapitulatif par outil</h2>
-          <table class="summary-table" style="margin-bottom:28px">
+          <table class="st">
             <tr><th>#</th><th>Outil</th><th>Type</th><th>Critical</th><th>High</th><th>Medium</th><th>Total</th><th>Statut</th></tr>
-            <tr><td style="padding:10px 12px;color:#94a3b8">1</td><td style="padding:10px 12px">Semgrep</td><td style="padding:10px 12px;color:#64748b">SAST</td><td style="padding:10px 12px">—</td><td style="padding:10px 12px;color:#f97316"><b>{len(sem_high)}</b></td><td style="padding:10px 12px;color:#eab308">{len(sem_med)}</td><td style="padding:10px 12px">{sem_total}</td><td style="padding:10px 12px"><span class="{"ok" if sem_total<=50 else "ko"}">{"OK" if sem_total<=50 else "KO"}</span></td></tr>
-            <tr><td style="padding:10px 12px;color:#94a3b8">2</td><td style="padding:10px 12px">ZAP</td><td style="padding:10px 12px;color:#64748b">DAST</td><td style="padding:10px 12px">—</td><td style="padding:10px 12px;color:#f97316"><b>{zap_high_count}</b></td><td style="padding:10px 12px;color:#eab308">{zap_med_count}</td><td style="padding:10px 12px">{zap_total}</td><td style="padding:10px 12px"><span class="{"ok" if zap_high_count<=5 else "ko"}">{"OK" if zap_high_count<=5 else "KO"}</span></td></tr>
-            <tr><td style="padding:10px 12px;color:#94a3b8">3</td><td style="padding:10px 12px">Nuclei</td><td style="padding:10px 12px;color:#64748b">DAST</td><td style="padding:10px 12px;color:#ef4444"><b>{nuclei_crit}</b></td><td style="padding:10px 12px;color:#f97316">{nuclei_high}</td><td style="padding:10px 12px;color:#eab308">{nuclei_med}</td><td style="padding:10px 12px">{nuc_total}</td><td style="padding:10px 12px"><span class="{"ko" if nuclei_crit>0 else "ok"}">{"KO" if nuclei_crit>0 else "OK"}</span></td></tr>
-            <tr><td style="padding:10px 12px;color:#94a3b8">4</td><td style="padding:10px 12px">Trivy</td><td style="padding:10px 12px;color:#64748b">SCA</td><td style="padding:10px 12px;color:#ef4444"><b>{trivy_crit}</b></td><td style="padding:10px 12px;color:#f97316">{trivy_high}</td><td style="padding:10px 12px;color:#eab308">{trivy_med}</td><td style="padding:10px 12px">{trivy_total}</td><td style="padding:10px 12px"><span class="{"ko" if trivy_crit>0 else "ok"}">{"KO" if trivy_crit>0 else "OK"}</span></td></tr>
+            <tr><td>1</td><td>Semgrep</td><td style="color:#64748b">SAST</td><td>—</td><td style="color:#f97316"><b>{len(sem_high)}</b></td><td style="color:#eab308">{len(sem_med)}</td><td>{sem_total}</td><td>{status(sem_total <= 50)}</td></tr>
+            <tr><td>2</td><td>ZAP</td><td style="color:#64748b">DAST</td><td>—</td><td style="color:#f97316"><b>{zap_high_count}</b></td><td style="color:#eab308">{zap_med_count}</td><td>{zap_total}</td><td>{status(zap_high_count <= 5)}</td></tr>
+            <tr><td>3</td><td>Nuclei</td><td style="color:#64748b">DAST</td><td style="color:#ef4444"><b>{nuclei_crit}</b></td><td style="color:#f97316">{nuclei_high}</td><td style="color:#eab308">{nuclei_med}</td><td>{nuc_total}</td><td>{status(nuclei_crit == 0)}</td></tr>
+            <tr><td>4</td><td>Trivy</td><td style="color:#64748b">SCA</td><td style="color:#ef4444"><b>{trivy_crit}</b></td><td style="color:#f97316">{trivy_high}</td><td style="color:#eab308">{trivy_med}</td><td>{trivy_total}</td><td>{status(trivy_crit == 0)}</td></tr>
           </table>
 
-          <h2>Findings Critical & High — tous outils ({len(all_critical_high)})</h2>
+          <h2>Findings Critical &amp; High — tous outils ({len(all_critical_high)})</h2>
           <table>
             <thead><tr>
               <th>#</th><th>Outil</th><th>Sévérité</th><th>ID / CVE</th>
               <th>Composant / Règle</th><th>Description</th><th>Référence</th>
             </tr></thead>
-            <tbody>{rows if rows else '<tr><td colspan="7" style="padding:16px;text-align:center;color:#64748b">Aucun finding critical/high détecté</td></tr>'}</tbody>
+            <tbody>{rows if rows else '<tr><td colspan="7" style="padding:20px;text-align:center;color:#64748b">Aucun finding critical/high détecté</td></tr>'}</tbody>
           </table>
 
           <footer>VulnShop DevSecOps PFE · Juice Shop · {datetime.now().strftime('%Y')}</footer>
