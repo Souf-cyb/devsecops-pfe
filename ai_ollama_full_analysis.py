@@ -43,7 +43,7 @@ def load_reports():
 def build_prompt(data):
 
     prompt = f"""
-You are a cybersecurity expert.
+Act as a cybersecurity expert.
 
 Analyze these security reports:
 
