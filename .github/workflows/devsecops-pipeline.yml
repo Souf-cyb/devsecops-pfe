@@ -6,14 +6,11 @@ on:
   pull_request:
     branches: [ main, master ]
 
-permissions:
-  contents: read
-  security-events: write
-
 jobs:
-# ═══════════════════════════════════════════════
-#  JOB 0 — SECRET SCANNING GITLEAKS
-# ══════════════════════════════════════════════
+
+  # ═══════════════════════════════════════════════
+  # JOB 0 — SECRET SCANNING GITLEAKS
+  # ═══════════════════════════════════════════════
   secret-scanning:
     name: Secret Scanning - Gitleaks
     runs-on: ubuntu-latest
@@ -40,18 +37,13 @@ jobs:
             --report-path /report/gitleaks.sarif \
             --verbose || true
 
-      # IMPORTANT
-      - name: Move .git temporarily
-        run: |
-          cp -r app/.git .git
-
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v4
+      - name: Upload Gitleaks Report
+        uses: actions/upload-artifact@v4
         if: always()
         with:
-          sarif_file: reports/gitleaks.sarif
-          sha: ${{ github.sha }}
-          ref: ${{ github.ref }}
+          name: gitleaks-report
+          path: reports/gitleaks.sarif
+          if-no-files-found: warn
 # ═══════════════════════════════════════════════
 #  JOB 1 — SAST SEMGREP
 # ═══════════════════════════════════════════════
@@ -353,7 +345,7 @@ jobs:
             -j \
             -r zap-full-report.html \
             -J zap-full-report.json \
-            -m 5 \
+            -m 5 \             
             -I || true
 
     # ── SCAN 2 : API REST via Swagger ────────────────────────────
@@ -366,11 +358,11 @@ jobs:
             -v ${{ github.workspace }}/reports/zap:/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-api-scan.py \
-            -t /zap/wrk/api-docs.json \
-            -f openapi \
-            -r zap-api-report.html \
-            -J zap-api-report.json \
-            -I || true
+              -t /zap/wrk/api-docs.json \
+              -f openapi \
+              -r zap-api-report.html \
+              -J zap-api-report.json \
+              -I || true
 
     # =========================
     # NUCLEI
@@ -410,13 +402,19 @@ jobs:
     # ═══════════════════════════════
     # 1. CHECKOUT CODE
     # ═══════════════════════════════
-      - name: Download Docker Image
-        uses: actions/download-artifact@v4
+      - name: Checkout Application Code
+        uses: actions/checkout@v4
         with:
-          name: docker-image
+          repository: Souf-cyb/juice-shop
+          path: application-source
 
-      - name: Load Docker Image
-        run: docker load -i image.tar
+    # ═══════════════════════════════
+    # 2. BUILD IMAGE
+    # ═══════════════════════════════
+      - name: Build Docker Image
+        run: |
+          cd application-source
+          docker build -t juice-shop-pfe:latest .
 
     # ═══════════════════════════════
     # 3. PREPARE REPORTS
