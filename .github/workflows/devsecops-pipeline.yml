@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main, master ]
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
 # ═══════════════════════════════════════════════
 #  JOB 0 — SECRET SCANNING GITLEAKS
@@ -13,6 +17,7 @@ jobs:
   secret-scanning:
     name: Secret Scanning - Gitleaks
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -35,18 +40,15 @@ jobs:
             --report-path /report/gitleaks.sarif \
             --verbose || true
 
-      - name: Upload SARIF to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+      # IMPORTANT
+      - name: Move .git temporarily
+        run: |
+          cp -r app/.git .git
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: reports/gitleaks.sarif
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: gitleaks-report
-          path: reports/gitleaks.sarif
 # ═══════════════════════════════════════════════
 #  JOB 1 — SAST SEMGREP
 # ═══════════════════════════════════════════════
