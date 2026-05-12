@@ -1,4 +1,4 @@
-name: DevSecOps Pipeline - JuiceShop
+name: DevSecOps Pipeline - OWASP JuiceShop
 
 on:
   push:
@@ -395,6 +395,25 @@ jobs:
     # ═══════════════════════════════
     # 4. TRIVY SCA (DEPENDENCIES)
     # ═══════════════════════════════
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate package-lock.json   # ← sans installer node_modules
+        run: |
+          cd application-source
+          npm install --package-lock-only --ignore-scripts
+
+      - name: Trivy SCA Scan (Filesystem)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: application-source
+          format: json
+          output: reports/trivy/trivy-sca.json
+          severity: CRITICAL,HIGH,MEDIUM
+          exit-code: 0
       - name: Trivy SCA Scan (Filesystem)
         uses: aquasecurity/trivy-action@master
         with:
