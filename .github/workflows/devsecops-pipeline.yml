@@ -479,7 +479,8 @@ jobs:
             try:
                 with open(path) as f:
                     return json.load(f)
-            except:
+            except Exception as e:
+                print(f"[WARN] Impossible de charger {path}: {e}")
                 return {}
 
           image = load("reports/trivy/trivy-image.json")
@@ -487,28 +488,33 @@ jobs:
           findings = []
 
           def cve_link(vuln_id):
-              # NVD est toujours valide pour les CVE
               if vuln_id.startswith("CVE-"):
                   return f"https://nvd.nist.gov/vuln/detail/{vuln_id}"
-              # GHSA et autres → OSV
               return f"https://osv.dev/vulnerability/{vuln_id}"
 
           def parse(data, source):
-              for r in data.get("Results", []):
-                  for v in r.get("Vulnerabilities", []):
-                      vid = v.get("VulnerabilityID", "")
+              if not isinstance(data, dict):
+                  return
+              for r in data.get("Results", []) or []:
+                  if not isinstance(r, dict):
+                      continue
+                  for v in r.get("Vulnerabilities", []) or []:
+                      if not isinstance(v, dict):
+                          continue
+                      vid   = v.get("VulnerabilityID", "")
+                      fixed = v.get("FixedVersion", "") or ""
                       findings.append({
                           "source":    source,
                           "pkg":       v.get("PkgName", ""),
                           "id":        vid,
                           "severity":  v.get("Severity", ""),
-                          "installed": v.get("InstalledVersion", ""),
-                          "fixed":     v.get("FixedVersion", "—"),
+                          "installed": v.get("InstalledVersion", "") or "—",
+                          "fixed":     fixed if fixed.strip() else "—",
                           "link":      cve_link(vid)
                       })
 
           parse(image, "IMAGE")
-          parse(sca, "SCA")
+          parse(sca,   "SCA")
 
           total = len(findings)
           crit  = len([f for f in findings if f["severity"] == "CRITICAL"])
@@ -570,7 +576,7 @@ jobs:
           <table id="vuln-table">
             <thead><tr>
               <th>Source</th><th>Package</th><th>CVE / ID</th>
-              <th>Sévérité</th><th>Installée</th><th>Corrigée en</th><th>Lien NVD</th>
+              <th>Sévérité</th><th>Version actuelle</th><th>Corrigée en</th><th>Lien NVD</th>
             </tr></thead>
             <tbody>
           """
@@ -583,7 +589,7 @@ jobs:
               <td>{f['pkg']}</td>
               <td><code>{f['id']}</code></td>
               <td><span class="badge" style="background:{color}22;color:{color}">{f['severity']}</span></td>
-              <td>{f['installed']}</td>
+              <td style="font-family:monospace;color:#fbbf24;font-size:11px">{f['installed']}</td>
               <td>{"<b style='color:#22c55e'>"+f['fixed']+"</b>" if f['fixed'] != "—" else "<span style='color:#64748b'>—</span>"}</td>
               <td><a href="{f['link']}" target="_blank">🔗 détails</a></td>
             </tr>"""
