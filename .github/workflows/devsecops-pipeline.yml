@@ -10,37 +10,40 @@ jobs:
 
 # ═══════════════════════════════════════════════
 #  JOB 0 — SECRET SCANNING GITLEAKS
-# ═══════════════════════════════════════════════
-  secret-scanning:
-    name: Secret Scanning - Gitleaks
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          # 1. AJOUTE TON FORK ICI
-          repository: Souf-cyb/juice-shop 
-          fetch-depth: 0
-          # 2. METS LE CODE DANS UN DOSSIER
-          path: app
+# ══════════════════════════════════════════════
+secret-scanning:
+  name: Secret Scanning - Gitleaks
+  runs-on: ubuntu-latest
 
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        with:
-          # 3. DIS À GITLEAKS DE SCANNER CE DOSSIER
-          source: app
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        repository: Souf-cyb/juice-shop
+        fetch-depth: 0
+        path: app
 
-      - name: Upload Gitleaks Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: gitleaks-report
-          # Note: Gitleaks génère souvent un fichier gitleaks.sarif par défaut
-          path: ./*.sarif 
-          if-no-files-found: warn
+    - name: Run Gitleaks
+      run: |
+        mkdir -p reports/gitleaks
+
+        docker run --rm \
+          -v ${{ github.workspace }}/app:/repo \
+          -v ${{ github.workspace }}/reports:/report \
+          ghcr.io/gitleaks/gitleaks:latest \
+          detect \
+          --source="/repo" \
+          --report-format sarif \
+          --report-path /report/gitleaks.sarif \
+          --verbose || true
+
+    - name: Upload Gitleaks Report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: gitleaks-report
+        path: reports/gitleaks.sarif
+        if-no-files-found: warn
 # ═══════════════════════════════════════════════
 #  JOB 1 — SAST SEMGREP
 # ═══════════════════════════════════════════════
