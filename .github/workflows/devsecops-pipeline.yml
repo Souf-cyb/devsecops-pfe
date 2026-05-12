@@ -320,19 +320,46 @@ jobs:
     # =========================
     # ZAP
     # =========================
-      - name: Run OWASP ZAP
+      - name: Wait for app to be ready
+        run: |
+          echo "Waiting for Juice Shop..."
+          for i in {1..30}; do
+            curl -sf http://localhost:3000 && echo "App ready!" && break
+            echo "Attempt $i/30..."
+            sleep 10
+          done
+
+# ── SCAN 1 : Interface web avec Ajax Spider ──────────────────
+      - name: ZAP Full Scan (SPA)
         run: |
           mkdir -p ${{ github.workspace }}/reports/zap
           chmod -R 777 ${{ github.workspace }}/reports/zap
-
           docker run --network=host \
             -v ${{ github.workspace }}/reports/zap:/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-full-scan.py \
-              -t http://localhost:3000 \
-              -r zap-report.html \
-              -J zap-report.json \
-              -I || true
+            -t http://localhost:3000 \
+            -j \
+            -r zap-full-report.html \
+            -J zap-full-report.json \
+            -m 5 \
+            -I || true
+
+    # ── SCAN 2 : API REST via Swagger ────────────────────────────
+      - name: ZAP API Scan (REST)
+        run: |
+          curl -s http://localhost:3000/api-docs \
+            -o ${{ github.workspace }}/reports/zap/api-docs.json
+
+          docker run --network=host \
+            -v ${{ github.workspace }}/reports/zap:/zap/wrk/:rw \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-api-scan.py \
+            -t /zap/wrk/api-docs.json \
+            -f openapi \
+            -r zap-api-report.html \
+            -J zap-api-report.json \
+            -I || true
 
     # =========================
     # NUCLEI
