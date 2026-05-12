@@ -23,25 +23,30 @@ jobs:
 
       - name: Run Gitleaks
         run: |
-          mkdir -p reports/gitleaks
+          mkdir -p reports
 
           docker run --rm \
-          -v ${{ github.workspace }}/app:/repo \
-          -v ${{ github.workspace }}/reports:/report \
-          ghcr.io/gitleaks/gitleaks:latest \
-          detect \
-          --source="/repo" \
-          --report-format sarif \
-          --report-path /report/gitleaks.sarif \
-          --verbose || true
+            -v ${{ github.workspace }}/app:/repo \
+            -v ${{ github.workspace }}/reports:/report \
+            ghcr.io/gitleaks/gitleaks:latest \
+            detect \
+            --source="/repo" \
+            --report-format sarif \
+            --report-path /report/gitleaks.sarif \
+            --verbose || true
 
-      - name: Upload Gitleaks Report
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: reports/gitleaks.sarif
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: gitleaks-report
           path: reports/gitleaks.sarif
-          if-no-files-found: warn
 # ═══════════════════════════════════════════════
 #  JOB 1 — SAST SEMGREP
 # ═══════════════════════════════════════════════
