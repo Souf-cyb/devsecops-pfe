@@ -15,10 +15,17 @@ jobs:
     name: Secret Scanning - Gitleaks
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout devseops-pfe
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Debug - List files
+        run: |
+          echo "=== Root ==="
+          ls -la
+          echo "=== shopvuln/ ==="
+          ls -la shopvuln/ || echo "shopvuln/ not found!"
 
       - name: Run Gitleaks
         run: |
@@ -48,8 +55,15 @@ jobs:
     name: SAST - Semgrep
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout devseops-pfe
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Debug - List shopvuln files
+        run: |
+          echo "=== shopvuln/ ==="
+          ls -la shopvuln/
+          echo "=== shopvuln/app/ ==="
+          ls -la shopvuln/app/
 
       - name: Install Semgrep
         run: pip install semgrep --break-system-packages
@@ -59,9 +73,7 @@ jobs:
           mkdir -p reports
           semgrep scan \
             shopvuln \
-            --config p/owasp-top-ten \
-            --config p/python \
-            --config p/flask \
+            --config auto \
             --json > reports/semgrep-report.json || true
         continue-on-error: true
 
@@ -72,8 +84,8 @@ jobs:
           try:
               with open("reports/semgrep-report.json") as f:
                   data = json.load(f)
-              results = data.get("results", [])
-              errors  = [r for r in results if r["extra"]["severity"] == "ERROR"]
+              results = data.get("results", []) if isinstance(data, dict) else []
+              errors  = [r for r in results if isinstance(r, dict) and r.get("extra",{}).get("severity") == "ERROR"]
               print(f"High findings detected: {len(errors)}")
               if len(errors) > 50:
                   print("SECURITY GATE FAILED")
@@ -91,10 +103,17 @@ jobs:
           try:
               with open("reports/semgrep-report.json") as f:
                   data = json.load(f)
-              results  = data.get("results", []) if isinstance(data, dict) else []
+              if isinstance(data, dict):
+                  results = data.get("results", [])
+              elif isinstance(data, list):
+                  results = data
+              else:
+                  results = []
           except:
               results = []
 
+          # Filtre les vrais findings
+          results = [r for r in results if isinstance(r, dict) and "check_id" in r]
           errors   = [r for r in results if r.get("extra",{}).get("severity") == "ERROR"]
           warnings = [r for r in results if r.get("extra",{}).get("severity") == "WARNING"]
 
@@ -113,91 +132,72 @@ jobs:
                   .stat {{ background:white; padding:20px; border-radius:10px; text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.06); }}
                   .stat h2 {{ font-size:36px; font-weight:500; margin-bottom:5px; }}
                   .stat p {{ color:#888; font-size:13px; }}
-                  .section-title {{ font-size:18px; font-weight:500; color:#1a1a2e; margin-bottom:15px; padding-left:12px; border-left:4px solid #e94560; }}
                   .table-wrap {{ background:white; border-radius:10px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.06); margin-bottom:20px; }}
                   table {{ width:100%; border-collapse:collapse; font-size:13px; }}
-                  th {{ background:#1a1a2e; color:white; padding:10px 15px; text-align:left; font-weight:400; }}
+                  th {{ background:#1a1a2e; color:white; padding:10px 15px; text-align:left; }}
                   td {{ padding:10px 15px; border-bottom:1px solid #f0f0f0; }}
-                  tr:last-child td {{ border-bottom:none; }}
-                  tr:hover td {{ background:#f8f9fa; }}
                   .finding {{ background:white; border-radius:10px; padding:20px; margin-bottom:15px; box-shadow:0 2px 8px rgba(0,0,0,0.06); border-left:5px solid #e94560; }}
                   .finding.WARNING {{ border-left-color:#f39c12; }}
-                  .badge {{ display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:500; margin-right:6px; }}
-                  .badge-error {{ background:#ffe0e0; color:#a32d2d; }}
-                  .badge-warning {{ background:#faeeda; color:#854f0b; }}
-                  .cwe {{ background:#e8f4fd; color:#2980b9; padding:3px 8px; border-radius:5px; font-size:11px; margin-right:5px; }}
-                  .owasp {{ background:#eafaf1; color:#27ae60; padding:3px 8px; border-radius:5px; font-size:11px; margin-right:5px; }}
+                  .cwe {{ background:#e8f4fd; color:#2980b9; padding:3px 8px; border-radius:5px; font-size:11px; }}
+                  .owasp {{ background:#eafaf1; color:#27ae60; padding:3px 8px; border-radius:5px; font-size:11px; }}
                   .meta {{ color:#666; font-size:13px; margin:8px 0; }}
-                  .message {{ background:#f8f9fa; padding:10px 15px; border-radius:5px; font-size:13px; color:#444; margin-top:10px; line-height:1.5; }}
+                  .message {{ background:#f8f9fa; padding:10px 15px; border-radius:5px; font-size:13px; color:#444; margin-top:10px; }}
                   .location {{ background:#1a1a2e; color:#00ff00; padding:10px 15px; border-radius:5px; font-family:monospace; font-size:13px; margin-top:10px; }}
                   footer {{ text-align:center; color:#aaa; font-size:12px; margin-top:30px; padding:20px; background:#1a1a2e; border-radius:10px; }}
-                  footer span {{ color:#e94560; }}
               </style>
           </head>
           <body>
           <div class="header">
               <h1>Semgrep SAST Security Report</h1>
-              <p>ShopVuln — DevSecOps PFE — Automated Security Analysis</p>
+              <p>ShopVuln — DevSecOps PFE</p>
           </div>
           <div class="stats">
-              <div class="stat"><h2 style="color:#e94560">{len(results)}</h2><p>Total Findings</p></div>
-              <div class="stat"><h2 style="color:#e94560">{len(errors)}</h2><p>High (Errors)</p></div>
-              <div class="stat"><h2 style="color:#f39c12">{len(warnings)}</h2><p>Medium (Warnings)</p></div>
-              <div class="stat"><h2 style="color:#3498db">{len(set(r.get('path','') for r in results))}</h2><p>Files Affected</p></div>
+              <div class="stat"><h2 style="color:#e94560">{len(results)}</h2><p>Total</p></div>
+              <div class="stat"><h2 style="color:#e94560">{len(errors)}</h2><p>High</p></div>
+              <div class="stat"><h2 style="color:#f39c12">{len(warnings)}</h2><p>Medium</p></div>
+              <div class="stat"><h2 style="color:#3498db">{len(set(r.get('path','') for r in results))}</h2><p>Files</p></div>
           </div>
-          <p class="section-title">Summary Table</p>
-          <div class="table-wrap">
-          <table>
+          <div class="table-wrap"><table>
               <tr><th>#</th><th>File</th><th>Line</th><th>Vulnerability</th><th>Severity</th><th>CWE</th></tr>
           """
           for i, r in enumerate(results, 1):
-              severity = r.get("extra",{}).get("severity","")
-              check_id = r.get("check_id","").split(".")[-1].replace("-", " ").title()
+              sev   = r.get("extra",{}).get("severity","")
+              name  = r.get("check_id","").split(".")[-1].replace("-"," ").title()
+              path  = r.get("path","")
+              line  = r.get("start",{}).get("line","")
+              cwes  = r.get("extra",{}).get("metadata",{}).get("cwe",[])
+              cwe   = cwes[0].split(":")[0] if cwes else "N/A"
+              color = "#e94560" if sev == "ERROR" else "#f39c12"
+              html += f"<tr><td>{i}</td><td><b>{path}</b></td><td>{line}</td><td>{name}</td><td style='color:{color}'>{sev}</td><td><span class='cwe'>{cwe}</span></td></tr>"
+
+          html += "</table></div>"
+
+          for r in results:
+              sev      = r.get("extra",{}).get("severity","")
+              name     = r.get("check_id","").split(".")[-1]
               path     = r.get("path","")
               line     = r.get("start",{}).get("line","")
-              cwes     = r.get("extra",{}).get("metadata",{}).get("cwe", [])
-              cwe_text = cwes[0].split(":")[0] if cwes else "N/A"
-              color    = "#e94560" if severity == "ERROR" else "#f39c12"
+              msg      = r.get("extra",{}).get("message","")
+              meta     = r.get("extra",{}).get("metadata",{})
+              cwes     = meta.get("cwe",[])
+              owasps   = meta.get("owasp",[])
+              impact   = meta.get("impact","N/A")
+              cwe_html = " ".join([f'<span class="cwe">{c.split(":")[0]}</span>' for c in cwes])
+              owasp_html = " ".join([f'<span class="owasp">{o.split(" - ")[0]}</span>' for o in owasps])
               html += f"""
-              <tr>
-                  <td>{i}</td><td><b>{path}</b></td><td>{line}</td>
-                  <td>{check_id}</td>
-                  <td style="color:{color};font-weight:500">{severity}</td>
-                  <td><span class="cwe">{cwe_text}</span></td>
-              </tr>"""
-          html += """</table></div><p class="section-title">Findings Details</p>"""
-          for r in results:
-              severity   = r.get("extra",{}).get("severity","")
-              check_id   = r.get("check_id","").split(".")[-1]
-              path       = r.get("path","")
-              line       = r.get("start",{}).get("line","")
-              message    = r.get("extra",{}).get("message","")
-              metadata   = r.get("extra",{}).get("metadata",{})
-              cwes       = metadata.get("cwe", [])
-              owasps     = metadata.get("owasp", [])
-              impact     = metadata.get("impact", "N/A")
-              likelihood = metadata.get("likelihood", "N/A")
-              cwe_badges   = " ".join([f'<span class="cwe">{c.split(":")[0]}</span>' for c in cwes])
-              owasp_badges = " ".join([f'<span class="owasp">{o.split(" - ")[0]}</span>' for o in owasps])
-              badge_class  = "badge-error" if severity == "ERROR" else "badge-warning"
-              html += f"""
-          <div class="finding {severity}">
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-                  <b style="color:#1a1a2e">{check_id.replace("-"," ").title()}</b>
-                  <span class="badge {badge_class}">{severity}</span>
-                  {cwe_badges} {owasp_badges}
+          <div class="finding {sev}">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+                  <b>{name.replace("-"," ").title()}</b> {cwe_html} {owasp_html}
               </div>
-              <div class="meta">File: <b>{path}</b> — Line <b>{line}</b></div>
-              <div class="meta">Impact: <b>{impact}</b> | Likelihood: <b>{likelihood}</b></div>
-              <div class="message">{message}</div>
+              <div class="meta">File: <b>{path}</b> — Line <b>{line}</b> — Impact: <b>{impact}</b></div>
+              <div class="message">{msg}</div>
               <div class="location">&gt;&gt;&gt; {path}:{line}</div>
           </div>"""
-          html += """
-          <footer><p>Generated by <span>Semgrep OSS</span> — ShopVuln DevSecOps PFE</p></footer>
-          </body></html>"""
-          with open("reports/semgrep-report.html", "w") as f:
+
+          html += "<footer>Semgrep OSS — ShopVuln DevSecOps PFE</footer></body></html>"
+          with open("reports/semgrep-report.html","w") as f:
               f.write(html)
-          print(f"HTML report generated with {len(results)} findings")
+          print(f"Report: {len(results)} findings ({len(errors)} high, {len(warnings)} medium)")
           EOF
         continue-on-error: true
 
@@ -215,7 +215,7 @@ jobs:
     name: IaC Security - Checkov
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout devseops-pfe
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Checkov
@@ -230,7 +230,7 @@ jobs:
             --output-file-path reports/ \
             --quiet \
             --soft-fail || true
-          mv reports/results_json.json reports/checkov-report.json || true
+          mv reports/results_json.json reports/checkov-report.json 2>/dev/null || true
 
       - name: Upload Checkov Report
         uses: actions/upload-artifact@v4
@@ -248,8 +248,21 @@ jobs:
     runs-on: ubuntu-latest
     needs: [secret-scanning, sast-semgrep, iac-checkov]
     steps:
-      - name: Checkout devseops-pfe
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify Dockerfile
+        run: |
+          echo "=== Files in shopvuln/ ==="
+          ls -la shopvuln/
+          echo ""
+          if [ -f shopvuln/Dockerfile ]; then
+            echo "✅ Dockerfile found"
+            cat shopvuln/Dockerfile
+          else
+            echo "❌ Dockerfile NOT found!"
+            exit 1
+          fi
 
       - name: Build Docker Image
         run: |
@@ -285,7 +298,7 @@ jobs:
       - name: Run ShopVuln App
         run: |
           docker run -d -p 5000:5000 --name shopvuln shopvuln:latest
-          echo "Waiting for ShopVuln to start..."
+          echo "Waiting for ShopVuln..."
           for i in {1..30}; do
             curl -sf http://localhost:5000 && echo "App ready!" && break
             echo "Attempt $i/30..."
@@ -296,7 +309,6 @@ jobs:
         run: |
           mkdir -p ${{ github.workspace }}/reports/zap
           chmod 777 ${{ github.workspace }}/reports/zap
-
           docker run --network=host \
             -v ${{ github.workspace }}/reports/zap:/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable \
@@ -340,7 +352,7 @@ jobs:
     needs: build-image
     if: always()
     steps:
-      - name: Checkout devseops-pfe
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Build Docker Image
@@ -379,9 +391,9 @@ jobs:
           def load(path):
               try:
                   with open(path) as f:
-                      return json.load(f)
-              except Exception as e:
-                  print(f"[WARN] {path}: {e}")
+                      data = json.load(f)
+                  return data if isinstance(data, dict) else {}
+              except:
                   return {}
 
           image = load("reports/trivy/trivy-image.json")
@@ -389,8 +401,7 @@ jobs:
           findings = []
 
           def cve_link(vid):
-              return f"https://nvd.nist.gov/vuln/detail/{vid}" if str(vid).startswith("CVE-") \
-                     else f"https://osv.dev/vulnerability/{vid}"
+              return f"https://nvd.nist.gov/vuln/detail/{vid}" if str(vid).startswith("CVE-") else f"https://osv.dev/vulnerability/{vid}"
 
           def parse(data, source):
               if not isinstance(data, dict):
@@ -404,136 +415,63 @@ jobs:
                       vid   = v.get("VulnerabilityID", "")
                       fixed = v.get("FixedVersion", "") or ""
                       findings.append({
-                          "source":    source,
-                          "pkg":       v.get("PkgName", ""),
-                          "id":        vid,
-                          "severity":  v.get("Severity", ""),
-                          "installed": v.get("InstalledVersion", "") or "—",
-                          "fixed":     fixed.strip() if fixed.strip() else "—",
-                          "link":      cve_link(vid)
+                          "source": source, "pkg": v.get("PkgName",""),
+                          "id": vid, "severity": v.get("Severity",""),
+                          "installed": v.get("InstalledVersion","") or "—",
+                          "fixed": fixed.strip() if fixed.strip() else "—",
+                          "link": cve_link(vid)
                       })
 
           parse(image, "IMAGE")
-          parse(sca,   "SCA")
+          parse(sca, "SCA")
 
           total = len(findings)
-          crit  = len([f for f in findings if f["severity"] == "CRITICAL"])
-          high  = len([f for f in findings if f["severity"] == "HIGH"])
-          med   = len([f for f in findings if f["severity"] == "MEDIUM"])
-          sev_color = {
-              "CRITICAL": "#ef4444",
-              "HIGH":     "#f97316",
-              "MEDIUM":   "#eab308",
-              "LOW":      "#94a3b8"
-          }
+          crit  = len([f for f in findings if f["severity"]=="CRITICAL"])
+          high  = len([f for f in findings if f["severity"]=="HIGH"])
+          med   = len([f for f in findings if f["severity"]=="MEDIUM"])
+          sev_color = {"CRITICAL":"#ef4444","HIGH":"#f97316","MEDIUM":"#eab308","LOW":"#94a3b8"}
 
           rows = ""
           for f in findings:
-              color = sev_color.get(f["severity"], "#94a3b8")
-              rows += f"""<tr
-                data-sev="{f['severity']}"
-                data-src="{f['source']}"
-                data-txt="{f['pkg'].lower()} {f['id'].lower()}">
-                <td><code>{f['source']}</code></td>
-                <td>{f['pkg']}</td>
-                <td><code>{f['id']}</code></td>
-                <td><span style="background:{color}22;color:{color};
-                    padding:2px 8px;border-radius:10px;font-size:11px">
-                    {f['severity']}</span></td>
-                <td style="font-family:monospace;color:#fbbf24;font-size:11px">
-                    {f['installed']}</td>
-                <td>{"<b style='color:#22c55e'>"+f['fixed']+"</b>"
-                     if f['fixed'] != "—"
-                     else "<span style='color:#64748b'>—</span>"}</td>
-                <td><a href="{f['link']}" target="_blank"
-                    style="color:#60a5fa">🔗 details</a></td>
-              </tr>"""
+              c = sev_color.get(f["severity"],"#94a3b8")
+              rows += f"""<tr data-sev="{f['severity']}" data-src="{f['source']}" data-txt="{f['pkg'].lower()} {f['id'].lower()}">
+                <td><code>{f['source']}</code></td><td>{f['pkg']}</td><td><code>{f['id']}</code></td>
+                <td><span style="background:{c}22;color:{c};padding:2px 8px;border-radius:10px;font-size:11px">{f['severity']}</span></td>
+                <td style="font-family:monospace;font-size:11px;color:#fbbf24">{f['installed']}</td>
+                <td>{"<b style='color:#22c55e'>"+f['fixed']+"</b>" if f['fixed']!="—" else "—"}</td>
+                <td><a href="{f['link']}" target="_blank" style="color:#60a5fa">🔗</a></td></tr>"""
 
-          html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
-          <title>Trivy Dashboard - ShopVuln</title>
-          <style>
-            *{{margin:0;padding:0;box-sizing:border-box}}
-            body{{font-family:Segoe UI,sans-serif;background:#0f172a;
-                  color:#e2e8f0;padding:24px}}
-            .grid{{display:grid;grid-template-columns:repeat(4,1fr);
-                   gap:10px;margin:16px 0 24px}}
-            .card{{background:#1e293b;padding:16px;border-radius:10px;
-                   border:1px solid #334155;text-align:center}}
-            .num{{font-size:32px;font-weight:500;margin-bottom:2px}}
-            .filters{{display:flex;gap:8px;margin-bottom:14px}}
-            .filters select,.filters input{{background:#1e293b;
-                border:1px solid #334155;color:#e2e8f0;
-                padding:6px 10px;border-radius:6px;font-size:12px}}
-            table{{width:100%;border-collapse:collapse;
-                   border:1px solid #334155;border-radius:10px;overflow:hidden}}
-            th{{background:#0f172a;padding:10px 12px;
-                font-size:11px;color:#94a3b8;text-align:left}}
-            td{{padding:9px 12px;font-size:12px;border-top:1px solid #1e293b}}
-          </style></head><body>
-          <h1 style="font-size:20px;font-weight:500">
-              🛡️ Trivy Dashboard — ShopVuln</h1>
-          <p style="color:#94a3b8;font-size:13px;margin-top:4px">
-              {datetime.now().strftime('%d/%m/%Y %H:%M')} · {total} vulnerabilities
-          </p>
+          html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Trivy - ShopVuln</title>
+          <style>*{{margin:0;padding:0;box-sizing:border-box}}body{{font-family:Segoe UI,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px}}
+          .grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0 24px}}
+          .card{{background:#1e293b;padding:16px;border-radius:10px;border:1px solid #334155;text-align:center}}
+          .num{{font-size:32px;font-weight:500}}
+          .filters{{display:flex;gap:8px;margin-bottom:14px}}
+          .filters select,.filters input{{background:#1e293b;border:1px solid #334155;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:12px}}
+          table{{width:100%;border-collapse:collapse;border:1px solid #334155;border-radius:10px;overflow:hidden}}
+          th{{background:#0f172a;padding:10px 12px;font-size:11px;color:#94a3b8;text-align:left}}
+          td{{padding:9px 12px;font-size:12px;border-top:1px solid #1e293b}}</style></head><body>
+          <h1 style="font-size:20px">🛡️ Trivy Dashboard — ShopVuln</h1>
+          <p style="color:#94a3b8;font-size:13px;margin-top:4px">{datetime.now().strftime('%d/%m/%Y %H:%M')} · {total} vulnerabilities</p>
           <div class="grid">
-            <div class="card">
-                <div class="num" style="color:#60a5fa">{total}</div>
-                <div style="font-size:12px;color:#94a3b8">Total</div>
-            </div>
-            <div class="card">
-                <div class="num" style="color:#ef4444">{crit}</div>
-                <div style="font-size:12px;color:#94a3b8">Critical</div>
-            </div>
-            <div class="card">
-                <div class="num" style="color:#f97316">{high}</div>
-                <div style="font-size:12px;color:#94a3b8">High</div>
-            </div>
-            <div class="card">
-                <div class="num" style="color:#eab308">{med}</div>
-                <div style="font-size:12px;color:#94a3b8">Medium</div>
-            </div>
+            <div class="card"><div class="num" style="color:#60a5fa">{total}</div><div style="font-size:12px;color:#94a3b8">Total</div></div>
+            <div class="card"><div class="num" style="color:#ef4444">{crit}</div><div style="font-size:12px;color:#94a3b8">Critical</div></div>
+            <div class="card"><div class="num" style="color:#f97316">{high}</div><div style="font-size:12px;color:#94a3b8">High</div></div>
+            <div class="card"><div class="num" style="color:#eab308">{med}</div><div style="font-size:12px;color:#94a3b8">Medium</div></div>
           </div>
           <div class="filters">
-            <select id="sev" onchange="filter()">
-              <option value="">All severities</option>
-              <option>CRITICAL</option>
-              <option>HIGH</option>
-              <option>MEDIUM</option>
-            </select>
-            <select id="src" onchange="filter()">
-              <option value="">All sources</option>
-              <option>IMAGE</option>
-              <option>SCA</option>
-            </select>
-            <input id="q" type="text"
-                   placeholder="Search package / CVE..."
-                   oninput="filter()">
+            <select id="sev" onchange="filter()"><option value="">All</option><option>CRITICAL</option><option>HIGH</option><option>MEDIUM</option></select>
+            <select id="src" onchange="filter()"><option value="">All</option><option>IMAGE</option><option>SCA</option></select>
+            <input id="q" placeholder="Search..." oninput="filter()">
           </div>
-          <table id="t">
-            <thead><tr>
-              <th>Source</th><th>Package</th><th>CVE</th>
-              <th>Severity</th><th>Installed</th>
-              <th>Fixed in</th><th>Link</th>
-            </tr></thead>
-            <tbody>{rows}</tbody>
-          </table>
-          <script>
-          function filter(){{
-            var s=document.getElementById('sev').value;
-            var r=document.getElementById('src').value;
-            var q=document.getElementById('q').value.toLowerCase();
-            document.querySelectorAll('#t tbody tr').forEach(function(row){{
-              var ok=(!s||row.dataset.sev===s)
-                    &&(!r||row.dataset.src===r)
-                    &&(!q||row.dataset.txt.includes(q));
-              row.style.display=ok?'':'none';
-            }});
-          }}
-          </script></body></html>"""
+          <table id="t"><thead><tr><th>Source</th><th>Package</th><th>CVE</th><th>Severity</th><th>Installed</th><th>Fixed</th><th>Link</th></tr></thead>
+          <tbody>{rows}</tbody></table>
+          <script>function filter(){{var s=document.getElementById('sev').value,r=document.getElementById('src').value,q=document.getElementById('q').value.toLowerCase();document.querySelectorAll('#t tbody tr').forEach(function(row){{row.style.display=(!s||row.dataset.sev===s)&&(!r||row.dataset.src===r)&&(!q||row.dataset.txt.includes(q))?'':'none'}})}}</script>
+          </body></html>"""
 
           with open("reports/trivy/dashboard.html","w") as f:
               f.write(html)
-          print(f"Trivy dashboard generated — {total} CVE")
+          print(f"Trivy dashboard — {total} CVE")
           EOF
 
       - name: Upload Trivy Reports
@@ -579,35 +517,27 @@ jobs:
           path: reports/trivy
         continue-on-error: true
 
+      - name: Debug - Show downloaded files
+        run: |
+          echo "=== All reports ==="
+          find reports/ -type f 2>/dev/null || echo "No reports found"
+
       - name: Generate HTML Dashboard
         run: |
           python3 << 'EOF'
           import json, glob
           from datetime import datetime
 
-          # ════════════════════════════════════════════
-          # HELPERS
-          # ════════════════════════════════════════════
-          def load_json_safe(pattern):
-              """Charge le premier fichier JSON trouvé.
-              Retourne toujours un dict ou None."""
+          def safe_load(pattern):
               files = glob.glob(pattern, recursive=True)
               if not files:
                   print(f"[WARN] Not found: {pattern}")
                   return None
               try:
                   with open(files[0], 'r', encoding='utf-8', errors='replace') as f:
-                      data = json.load(f)
-                  # On s'assure de toujours retourner un dict
-                  if isinstance(data, dict):
-                      return data
-                  elif isinstance(data, list):
-                      # ZAP retourne parfois une liste de sites
-                      return {"_list": data}
-                  else:
-                      return None
+                      return json.load(f)
               except Exception as e:
-                  print(f"[WARN] Cannot load {files[0]}: {e}")
+                  print(f"[WARN] {files[0]}: {e}")
                   return None
 
           def cve_link(vid):
@@ -617,440 +547,270 @@ jobs:
               return f"https://osv.dev/vulnerability/{vid}"
 
           def bar(val, maxi, color):
-              pct = int((val / maxi) * 100) if maxi > 0 else 0
-              return (
-                  f'<div style="height:5px;background:#0f172a;'
-                  f'border-radius:3px;margin-top:5px">'
-                  f'<div style="height:5px;width:{pct}%;'
-                  f'background:{color};border-radius:3px"></div></div>'
-              )
+              pct = int((val/maxi)*100) if maxi > 0 else 0
+              return f'<div style="height:5px;background:#0f172a;border-radius:3px;margin-top:5px"><div style="height:5px;width:{pct}%;background:{color};border-radius:3px"></div></div>'
 
-          def sev_badge(s):
-              c = {"CRITICAL":"#ef4444","HIGH":"#f97316",
-                   "MEDIUM":"#eab308"}.get(s,"#94a3b8")
-              return (f'<span style="background:{c}22;color:{c};'
-                      f'padding:2px 8px;border-radius:10px;'
-                      f'font-size:11px;font-weight:500">{s}</span>')
+          def badge(s):
+              c = {"CRITICAL":"#ef4444","HIGH":"#f97316","MEDIUM":"#eab308"}.get(s,"#94a3b8")
+              return f'<span style="background:{c}22;color:{c};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">{s}</span>'
 
-          def status_ok(ok):
-              if ok:
-                  return '<span style="color:#22c55e;font-weight:500">✓ OK</span>'
-              return '<span style="color:#ef4444;font-weight:500">✗ KO</span>'
+          def status(ok):
+              return '<span style="color:#22c55e;font-weight:500">✓ OK</span>' if ok else '<span style="color:#ef4444;font-weight:500">✗ KO</span>'
 
-          # ════════════════════════════════════════════
-          # 1. SEMGREP
-          # ════════════════════════════════════════════
-          sem_data = load_json_safe("reports/semgrep/**/*.json")
-          if sem_data is None:
-              sem_results = []
-          elif "_list" in sem_data:
-              sem_results = sem_data["_list"]
-          else:
-              sem_results = sem_data.get("results", [])
+          # ══════════════════════════════════════
+          # SEMGREP
+          # ══════════════════════════════════════
+          sem_raw = safe_load("reports/semgrep/**/*.json")
+          sem_results = []
+          if isinstance(sem_raw, dict):
+              sem_results = sem_raw.get("results", [])
+          elif isinstance(sem_raw, list):
+              sem_results = sem_raw
 
-          # Filtre : on ne garde que les vrais findings Semgrep
-          sem_results = [
-              r for r in sem_results
-              if isinstance(r, dict) and "check_id" in r
-          ]
-
-          sem_high = [
-              r for r in sem_results
-              if r.get("extra", {}).get("severity") == "ERROR"
-          ]
-          sem_med = [
-              r for r in sem_results
-              if r.get("extra", {}).get("severity") == "WARNING"
-          ]
+          # Filtre les vrais findings
+          sem_results = [r for r in sem_results if isinstance(r, dict) and "check_id" in r]
+          sem_high = [r for r in sem_results if r.get("extra",{}).get("severity") == "ERROR"]
+          sem_med  = [r for r in sem_results if r.get("extra",{}).get("severity") == "WARNING"]
 
           sem_findings = []
           for r in sem_high:
-              meta = r.get("extra", {}).get("metadata", {})
-              cwes = meta.get("cwe", [])
-              refs = meta.get("references", [])
+              meta = r.get("extra",{}).get("metadata",{})
+              cwes = meta.get("cwe",[])
+              refs = meta.get("references",[])
               sem_findings.append({
-                  "tool":     "Semgrep",
-                  "id":       cwes[0] if cwes else "N/A",
-                  "severity": "HIGH",
-                  "pkg":      r.get("check_id", "").split(".")[-1],
-                  "file":     (f"{r.get('path','')}:"
-                               f"{r.get('start',{}).get('line','')}"),
-                  "desc":     r.get("extra", {}).get("message", "")[:120],
-                  "link":     refs[0] if refs else ""
+                  "tool":"Semgrep","severity":"HIGH",
+                  "id": cwes[0] if cwes else "N/A",
+                  "pkg": r.get("check_id","").split(".")[-1],
+                  "file": f"{r.get('path','')}:{r.get('start',{}).get('line','')}",
+                  "desc": r.get("extra",{}).get("message","")[:120],
+                  "link": refs[0] if refs else ""
               })
 
-          # ════════════════════════════════════════════
-          # 2. ZAP
-          # ════════════════════════════════════════════
-          zap_data = load_json_safe(
-              "reports/dast-combined/**/zap-full-report.json"
-          )
-          zap_high_count = zap_med_count = 0
+          print(f"[OK] Semgrep: {len(sem_results)} total, {len(sem_high)} high, {len(sem_med)} medium")
+
+          # ══════════════════════════════════════
+          # ZAP
+          # ══════════════════════════════════════
+          zap_raw = safe_load("reports/dast-combined/**/zap-full-report.json")
+          zap_high = zap_med = 0
           zap_findings = []
 
-          if zap_data is not None:
-              # Normalise : extrait la liste de sites
-              if "_list" in zap_data:
-                  raw = zap_data["_list"]
-                  # Cas : liste de sites directs
-                  if raw and isinstance(raw[0], dict) and "alerts" in raw[0]:
-                      sites = raw
-                  # Cas : liste d'objets wrappés {"site": [...]}
-                  elif raw and isinstance(raw[0], dict) and "site" in raw[0]:
-                      sites = []
-                      for item in raw:
-                          s = item.get("site", [])
-                          sites.extend(s if isinstance(s, list) else [s])
-                  else:
-                      sites = []
-              else:
-                  s = zap_data.get("site", [])
-                  if isinstance(s, list):
-                      sites = s
-                  elif isinstance(s, dict):
+          if zap_raw is not None:
+              # Normalise sites
+              sites = []
+              if isinstance(zap_raw, dict):
+                  s = zap_raw.get("site", [])
+                  if isinstance(s, dict):
                       sites = [s]
-                  else:
-                      sites = []
+                  elif isinstance(s, list):
+                      sites = s
+              elif isinstance(zap_raw, list):
+                  for item in zap_raw:
+                      if isinstance(item, dict):
+                          if "alerts" in item:
+                              sites.append(item)
+                          elif "site" in item:
+                              s = item["site"]
+                              if isinstance(s, dict):
+                                  sites.append(s)
+                              elif isinstance(s, list):
+                                  sites.extend(s)
 
               for site in sites:
                   if not isinstance(site, dict):
                       continue
-                  for alert in site.get("alerts", []):
+                  alerts = site.get("alerts", [])
+                  if not isinstance(alerts, list):
+                      continue
+                  for alert in alerts:
                       if not isinstance(alert, dict):
                           continue
-                      rc    = str(alert.get("riskcode", "0"))
-                      name  = alert.get("name", "")
-                      cweid = str(alert.get("cweid", "")).strip()
-                      desc  = (str(alert.get("desc", ""))
-                               .replace("<p>", "")
-                               .replace("</p>", "")
-                               .strip()[:120])
-                      instances = alert.get("instances", [{}])
-                      uri = ""
-                      if (instances
-                              and isinstance(instances[0], dict)):
-                          uri = instances[0].get("uri", "")
+                      rc    = str(alert.get("riskcode","0"))
+                      name  = str(alert.get("name",""))
+                      cweid = str(alert.get("cweid","")).strip()
+                      desc  = str(alert.get("desc","")).replace("<p>","").replace("</p>","").strip()[:120]
+                      insts = alert.get("instances",[])
+                      uri   = ""
+                      if isinstance(insts, list) and insts and isinstance(insts[0], dict):
+                          uri = insts[0].get("uri","")
 
-                      entry = {
-                          "tool": "ZAP",
-                          "id":   (f"CWE-{cweid}"
-                                   if cweid and cweid != "0"
-                                   else name),
-                          "pkg":  name,
-                          "file": uri,
-                          "desc": desc,
-                          "link": (
-                              f"https://cwe.mitre.org/data/"
-                              f"definitions/{cweid}.html"
-                              if cweid and cweid != "0" else ""
-                          )
-                      }
                       if rc == "3":
-                          zap_high_count += 1
-                          entry["severity"] = "HIGH"
-                          zap_findings.append(entry)
+                          zap_high += 1
+                          zap_findings.append({
+                              "tool":"ZAP","severity":"HIGH",
+                              "id": f"CWE-{cweid}" if cweid and cweid!="0" else name,
+                              "pkg": name, "file": uri, "desc": desc,
+                              "link": f"https://cwe.mitre.org/data/definitions/{cweid}.html" if cweid and cweid!="0" else ""
+                          })
                       elif rc == "2":
-                          zap_med_count += 1
+                          zap_med += 1
 
-          print(f"[DEBUG] ZAP: {zap_high_count} high, "
-                f"{zap_med_count} medium")
+          print(f"[OK] ZAP: {zap_high} high, {zap_med} medium")
 
-          # ════════════════════════════════════════════
-          # 3. TRIVY
-          # ════════════════════════════════════════════
-          trivy_sca   = load_json_safe("reports/trivy/trivy-sca.json")
-          trivy_image = load_json_safe("reports/trivy/trivy-image.json")
+          # ══════════════════════════════════════
+          # TRIVY
+          # ══════════════════════════════════════
           trivy_crit = trivy_high = trivy_med = 0
           trivy_findings = []
 
-          for td, src in [
-              (trivy_sca, "SCA"),
-              (trivy_image, "IMAGE")
+          for pattern, src in [
+              ("reports/trivy/trivy-sca.json", "SCA"),
+              ("reports/trivy/trivy-image.json", "IMAGE"),
+              ("reports/trivy/**/trivy-sca.json", "SCA"),
+              ("reports/trivy/**/trivy-image.json", "IMAGE")
           ]:
+              td = safe_load(pattern)
               if not isinstance(td, dict):
                   continue
-              # Trivy peut wrapper dans "_list" si racine = liste
-              results_list = td.get("Results", []) or []
-              for res in results_list:
+              for res in td.get("Results", []) or []:
                   if not isinstance(res, dict):
                       continue
                   for v in res.get("Vulnerabilities", []) or []:
                       if not isinstance(v, dict):
                           continue
-                      sev = v.get("Severity", "")
-                      vid = v.get("VulnerabilityID", "")
+                      sev = v.get("Severity","")
+                      vid = v.get("VulnerabilityID","")
                       entry = {
-                          "tool":     f"Trivy ({src})",
-                          "id":       vid,
-                          "severity": sev,
-                          "pkg":      v.get("PkgName", ""),
-                          "file":     v.get("InstalledVersion", ""),
-                          "desc":     str(v.get("Title", ""))[:120],
-                          "link":     cve_link(vid)
+                          "tool":f"Trivy ({src})", "severity":sev,
+                          "id":vid, "pkg":v.get("PkgName",""),
+                          "file":v.get("InstalledVersion",""),
+                          "desc":str(v.get("Title",""))[:120],
+                          "link":cve_link(vid)
                       }
                       if sev == "CRITICAL":
-                          trivy_crit += 1
-                          trivy_findings.append(entry)
+                          trivy_crit += 1; trivy_findings.append(entry)
                       elif sev == "HIGH":
-                          trivy_high += 1
-                          trivy_findings.append(entry)
+                          trivy_high += 1; trivy_findings.append(entry)
                       elif sev == "MEDIUM":
                           trivy_med += 1
 
-          print(f"[DEBUG] Trivy: {trivy_crit} critical, "
-                f"{trivy_high} high, {trivy_med} medium")
+          # Déduplique trivy (on cherche dans 2 patterns)
+          seen = set()
+          unique_trivy = []
+          for f in trivy_findings:
+              key = f"{f['id']}_{f['pkg']}_{f['tool']}"
+              if key not in seen:
+                  seen.add(key)
+                  unique_trivy.append(f)
+          trivy_findings = unique_trivy
+          trivy_crit = len([f for f in trivy_findings if f["severity"]=="CRITICAL"])
+          trivy_high = len([f for f in trivy_findings if f["severity"]=="HIGH"])
 
-          # ════════════════════════════════════════════
+          print(f"[OK] Trivy: {trivy_crit} critical, {trivy_high} high, {trivy_med} medium")
+
+          # ══════════════════════════════════════
           # TOTAUX
-          # ════════════════════════════════════════════
+          # ══════════════════════════════════════
           sem_total   = len(sem_results)
-          zap_total   = zap_high_count + zap_med_count
+          zap_total   = zap_high + zap_med
           trivy_total = trivy_crit + trivy_high + trivy_med
           grand_total = sem_total + zap_total + trivy_total
           grand_crit  = trivy_crit
-          grand_high  = len(sem_high) + zap_high_count + trivy_high
-          grand_med   = len(sem_med) + zap_med_count + trivy_med
+          grand_high  = len(sem_high) + zap_high + trivy_high
+          grand_med   = len(sem_med) + zap_med + trivy_med
 
-          all_findings = (
-              sem_findings + zap_findings + trivy_findings
-          )
-          all_findings.sort(
-              key=lambda x: 0 if x["severity"] == "CRITICAL" else 1
-          )
+          all_findings = sem_findings + zap_findings + trivy_findings
+          all_findings.sort(key=lambda x: 0 if x["severity"]=="CRITICAL" else 1)
 
-          # ════════════════════════════════════════════
-          # TABLEAU HTML
-          # ════════════════════════════════════════════
+          # ══════════════════════════════════════
+          # HTML
+          # ══════════════════════════════════════
           rows = ""
           for i, f in enumerate(all_findings):
-              link_cell = (
-                  f'<a href="{f["link"]}" target="_blank" '
-                  f'style="color:#60a5fa;text-decoration:none">'
-                  f'🔗 link</a>'
-                  if f.get("link") else "—"
-              )
-              desc_safe = (str(f.get("desc", ""))
-                           .replace("<", "&lt;")
-                           .replace(">", "&gt;"))
-              rows += f"""
-              <tr style="border-top:1px solid #0f172a">
+              link_cell = f'<a href="{f["link"]}" target="_blank" style="color:#60a5fa">🔗</a>' if f.get("link") else "—"
+              desc_safe = str(f.get("desc","")).replace("<","&lt;").replace(">","&gt;")
+              rows += f"""<tr style="border-top:1px solid #0f172a">
                 <td style="padding:8px 10px;color:#64748b">{i+1}</td>
-                <td style="padding:8px 10px">
-                  <code style="background:#0f172a;padding:2px 6px;
-                      border-radius:3px;color:#7dd3fc;font-size:10px">
-                    {f["tool"]}
-                  </code>
-                </td>
-                <td style="padding:8px 10px">
-                    {sev_badge(f["severity"])}
-                </td>
-                <td style="padding:8px 10px;color:#f8fafc;
-                    font-weight:500;font-size:11px">
-                    {str(f["id"])[:40]}
-                </td>
-                <td style="padding:8px 10px;color:#94a3b8;font-size:11px">
-                    {str(f["pkg"])[:35]}
-                </td>
-                <td style="padding:8px 10px;color:#94a3b8;font-size:11px;
-                    max-width:220px;overflow:hidden;
-                    text-overflow:ellipsis;white-space:nowrap">
-                    {desc_safe}
-                </td>
+                <td style="padding:8px 10px"><code style="background:#0f172a;padding:2px 6px;border-radius:3px;color:#7dd3fc;font-size:10px">{f["tool"]}</code></td>
+                <td style="padding:8px 10px">{badge(f["severity"])}</td>
+                <td style="padding:8px 10px;color:#f8fafc;font-size:11px">{str(f["id"])[:40]}</td>
+                <td style="padding:8px 10px;color:#94a3b8;font-size:11px">{str(f["pkg"])[:35]}</td>
+                <td style="padding:8px 10px;color:#94a3b8;font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{desc_safe}</td>
                 <td style="padding:8px 10px">{link_cell}</td>
               </tr>"""
 
-          # ════════════════════════════════════════════
-          # HTML FINAL
-          # ════════════════════════════════════════════
-          html = f"""<!DOCTYPE html>
-          <html lang="en"><head>
-          <meta charset="UTF-8">
-          <title>Security Dashboard — ShopVuln</title>
+          html = f"""<!DOCTYPE html><html lang="en"><head>
+          <meta charset="UTF-8"><title>Security Dashboard — ShopVuln</title>
           <style>
           *{{margin:0;padding:0;box-sizing:border-box}}
-          body{{font-family:Segoe UI,Arial,sans-serif;
-                background:#0f172a;color:#e2e8f0;padding:28px}}
-          h1{{font-size:22px;font-weight:600;color:#f8fafc}}
+          body{{font-family:Segoe UI,sans-serif;background:#0f172a;color:#e2e8f0;padding:28px}}
+          h1{{font-size:22px;font-weight:600}}
           .sub{{color:#64748b;font-size:13px;margin:4px 0 24px}}
-          .stats{{display:grid;grid-template-columns:repeat(4,1fr);
-                  gap:10px;margin-bottom:24px}}
-          .stat{{background:#1e293b;border-radius:10px;padding:16px;
-                 border:1px solid #334155;text-align:center}}
-          .stat .n{{font-size:34px;font-weight:600;margin-bottom:2px}}
-          .stat .l{{font-size:11px;color:#64748b;
-                    text-transform:uppercase;letter-spacing:.5px}}
-          .tools{{display:grid;grid-template-columns:repeat(3,1fr);
-                  gap:10px;margin-bottom:28px}}
-          .tool{{background:#1e293b;border-radius:10px;padding:16px;
-                 border:1px solid #334155}}
-          .tool h3{{font-size:13px;font-weight:500;margin-bottom:3px}}
+          .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}}
+          .stat{{background:#1e293b;border-radius:10px;padding:16px;border:1px solid #334155;text-align:center}}
+          .stat .n{{font-size:34px;font-weight:600}}
+          .stat .l{{font-size:11px;color:#64748b;text-transform:uppercase}}
+          .tools{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:28px}}
+          .tool{{background:#1e293b;border-radius:10px;padding:16px;border:1px solid #334155}}
+          .tool h3{{font-size:13px;margin-bottom:3px}}
           .tool .meta{{font-size:11px;color:#64748b;margin-bottom:10px}}
-          .row{{display:flex;justify-content:space-between;
-                align-items:center;margin-top:6px}}
+          .row{{display:flex;justify-content:space-between;margin-top:6px}}
           .row span{{font-size:12px;color:#94a3b8}}
-          h2{{font-size:15px;font-weight:500;margin-bottom:12px;
-              padding-bottom:8px;border-bottom:1px solid #334155}}
-          table{{width:100%;border-collapse:collapse;background:#1e293b;
-                 border-radius:10px;overflow:hidden;
-                 border:1px solid #334155;font-size:12px;
-                 margin-bottom:28px}}
-          th{{background:#0f172a;padding:9px 10px;font-size:10px;
-              font-weight:500;color:#64748b;text-align:left;
-              text-transform:uppercase;letter-spacing:.4px}}
-          footer{{text-align:center;color:#334155;font-size:11px;
-                  margin-top:16px;padding-top:16px;
-                  border-top:1px solid #1e293b}}
+          h2{{font-size:15px;font-weight:500;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #334155}}
+          table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden;border:1px solid #334155;font-size:12px;margin-bottom:28px}}
+          th{{background:#0f172a;padding:9px 10px;font-size:10px;color:#64748b;text-align:left;text-transform:uppercase}}
+          footer{{text-align:center;color:#334155;font-size:11px;margin-top:16px;padding-top:16px;border-top:1px solid #1e293b}}
           </style></head><body>
 
           <h1>🛡️ Security Dashboard — ShopVuln</h1>
-          <div class="sub">
-            DevSecOps Pipeline ·
-            {datetime.now().strftime('%d/%m/%Y %H:%M')} ·
-            {grand_total} total findings
-          </div>
+          <div class="sub">DevSecOps Pipeline · {datetime.now().strftime('%d/%m/%Y %H:%M')} · {grand_total} findings</div>
 
           <div class="stats">
-            <div class="stat">
-              <div class="n" style="color:#60a5fa">{grand_total}</div>
-              <div class="l">Total</div>
-            </div>
-            <div class="stat">
-              <div class="n" style="color:#ef4444">{grand_crit}</div>
-              <div class="l">Critical</div>
-            </div>
-            <div class="stat">
-              <div class="n" style="color:#f97316">{grand_high}</div>
-              <div class="l">High</div>
-            </div>
-            <div class="stat">
-              <div class="n" style="color:#eab308">{grand_med}</div>
-              <div class="l">Medium</div>
-            </div>
+            <div class="stat"><div class="n" style="color:#60a5fa">{grand_total}</div><div class="l">Total</div></div>
+            <div class="stat"><div class="n" style="color:#ef4444">{grand_crit}</div><div class="l">Critical</div></div>
+            <div class="stat"><div class="n" style="color:#f97316">{grand_high}</div><div class="l">High</div></div>
+            <div class="stat"><div class="n" style="color:#eab308">{grand_med}</div><div class="l">Medium</div></div>
           </div>
 
           <div class="tools">
             <div class="tool">
               <h3>SAST — Semgrep</h3>
-              <div class="meta">
-                  {sem_total} findings · Python/Flask
-              </div>
-              <div class="row">
-                <span>High</span>
-                <b style="color:#f97316">{len(sem_high)}</b>
-              </div>
+              <div class="meta">{sem_total} findings · Python/Flask</div>
+              <div class="row"><span>High</span><b style="color:#f97316">{len(sem_high)}</b></div>
               {bar(len(sem_high), sem_total or 1, '#f97316')}
-              <div class="row">
-                <span>Medium</span>
-                <b style="color:#eab308">{len(sem_med)}</b>
-              </div>
+              <div class="row"><span>Medium</span><b style="color:#eab308">{len(sem_med)}</b></div>
               {bar(len(sem_med), sem_total or 1, '#eab308')}
             </div>
-
             <div class="tool">
               <h3>DAST — OWASP ZAP</h3>
-              <div class="meta">
-                  {zap_total} alerts · live app port 5000
-              </div>
-              <div class="row">
-                <span>High</span>
-                <b style="color:#f97316">{zap_high_count}</b>
-              </div>
-              {bar(zap_high_count, zap_total or 1, '#f97316')}
-              <div class="row">
-                <span>Medium</span>
-                <b style="color:#eab308">{zap_med_count}</b>
-              </div>
-              {bar(zap_med_count, zap_total or 1, '#eab308')}
+              <div class="meta">{zap_total} alerts · live app</div>
+              <div class="row"><span>High</span><b style="color:#f97316">{zap_high}</b></div>
+              {bar(zap_high, zap_total or 1, '#f97316')}
+              <div class="row"><span>Medium</span><b style="color:#eab308">{zap_med}</b></div>
+              {bar(zap_med, zap_total or 1, '#eab308')}
             </div>
-
             <div class="tool">
               <h3>SCA + Image — Trivy</h3>
-              <div class="meta">
-                  {trivy_total} CVE · deps + Docker
-              </div>
-              <div class="row">
-                <span>Critical</span>
-                <b style="color:#ef4444">{trivy_crit}</b>
-              </div>
+              <div class="meta">{trivy_total} CVE · deps + Docker</div>
+              <div class="row"><span>Critical</span><b style="color:#ef4444">{trivy_crit}</b></div>
               {bar(trivy_crit, trivy_total or 1, '#ef4444')}
-              <div class="row">
-                <span>High</span>
-                <b style="color:#f97316">{trivy_high}</b>
-              </div>
+              <div class="row"><span>High</span><b style="color:#f97316">{trivy_high}</b></div>
               {bar(trivy_high, trivy_total or 1, '#f97316')}
-              <div class="row">
-                <span>Medium</span>
-                <b style="color:#eab308">{trivy_med}</b>
-              </div>
-              {bar(trivy_med, trivy_total or 1, '#eab308')}
             </div>
           </div>
 
           <h2>Summary by Tool</h2>
           <table>
-            <tr>
-              <th>#</th><th>Tool</th><th>Type</th>
-              <th>Critical</th><th>High</th><th>Medium</th>
-              <th>Total</th><th>Status</th>
-            </tr>
-            <tr>
-              <td style="padding:10px">1</td>
-              <td>Semgrep</td>
-              <td style="color:#64748b">SAST</td>
-              <td>—</td>
-              <td style="color:#f97316"><b>{len(sem_high)}</b></td>
-              <td style="color:#eab308">{len(sem_med)}</td>
-              <td>{sem_total}</td>
-              <td>{status_ok(len(sem_high) <= 10)}</td>
-            </tr>
-            <tr>
-              <td style="padding:10px">2</td>
-              <td>ZAP</td>
-              <td style="color:#64748b">DAST</td>
-              <td>—</td>
-              <td style="color:#f97316"><b>{zap_high_count}</b></td>
-              <td style="color:#eab308">{zap_med_count}</td>
-              <td>{zap_total}</td>
-              <td>{status_ok(zap_high_count <= 5)}</td>
-            </tr>
-            <tr>
-              <td style="padding:10px">3</td>
-              <td>Trivy</td>
-              <td style="color:#64748b">SCA</td>
-              <td style="color:#ef4444"><b>{trivy_crit}</b></td>
-              <td style="color:#f97316">{trivy_high}</td>
-              <td style="color:#eab308">{trivy_med}</td>
-              <td>{trivy_total}</td>
-              <td>{status_ok(trivy_crit == 0)}</td>
-            </tr>
+            <tr><th>#</th><th>Tool</th><th>Type</th><th>Critical</th><th>High</th><th>Medium</th><th>Total</th><th>Status</th></tr>
+            <tr><td style="padding:10px">1</td><td>Semgrep</td><td style="color:#64748b">SAST</td><td>—</td><td style="color:#f97316"><b>{len(sem_high)}</b></td><td style="color:#eab308">{len(sem_med)}</td><td>{sem_total}</td><td>{status(len(sem_high)<=10)}</td></tr>
+            <tr><td style="padding:10px">2</td><td>ZAP</td><td style="color:#64748b">DAST</td><td>—</td><td style="color:#f97316"><b>{zap_high}</b></td><td style="color:#eab308">{zap_med}</td><td>{zap_total}</td><td>{status(zap_high<=5)}</td></tr>
+            <tr><td style="padding:10px">3</td><td>Trivy</td><td style="color:#64748b">SCA</td><td style="color:#ef4444"><b>{trivy_crit}</b></td><td style="color:#f97316">{trivy_high}</td><td style="color:#eab308">{trivy_med}</td><td>{trivy_total}</td><td>{status(trivy_crit==0)}</td></tr>
           </table>
 
           <h2>Critical & High Findings ({len(all_findings)})</h2>
           <table>
-            <thead><tr>
-              <th>#</th><th>Tool</th><th>Severity</th>
-              <th>ID / CVE</th><th>Component</th>
-              <th>Description</th><th>Reference</th>
-            </tr></thead>
+            <thead><tr><th>#</th><th>Tool</th><th>Severity</th><th>ID / CVE</th><th>Component</th><th>Description</th><th>Ref</th></tr></thead>
             <tbody>
-            {rows if rows else
-             '<tr><td colspan="7" style="padding:20px;'
-             'text-align:center;color:#64748b">'
-             'No critical/high findings detected</td></tr>'}
+            {rows if rows else '<tr><td colspan="7" style="padding:20px;text-align:center;color:#64748b">No critical/high findings</td></tr>'}
             </tbody>
           </table>
 
-          <footer>
-            ShopVuln · DevSecOps PFE · {datetime.now().strftime('%Y')}
-          </footer>
+          <footer>ShopVuln · DevSecOps PFE · {datetime.now().strftime('%Y')}</footer>
           </body></html>"""
 
-          with open("security-dashboard.html", "w") as f:
+          with open("security-dashboard.html","w") as f:
               f.write(html)
-          print(
-              f"[OK] Dashboard generated — {grand_total} findings, "
-              f"{len(all_findings)} critical/high"
-          )
+          print(f"[OK] Dashboard: {grand_total} findings, {len(all_findings)} critical/high")
           EOF
 
       - name: Upload Dashboard
