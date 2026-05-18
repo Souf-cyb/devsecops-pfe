@@ -139,17 +139,19 @@ jobs:
                   "ref": refs[0] if refs else ""
               })
 
-          findings_json = json.dumps(findings, ensure_ascii=False)
           cats = sorted(set(f["cat"] for f in findings))
           cat_options = "".join(f'<option value="{c}">{c}</option>' for c in cats)
 
           rows = ""
-          for f in findings:
+          for i, f in enumerate(findings):
               sev_color = {"ERROR":"#ef4444","WARNING":"#eab308","INFO":"#60a5fa"}.get(f["sev"],"#94a3b8")
               sev_label = {"ERROR":"HIGH","WARNING":"MEDIUM","INFO":"INFO"}.get(f["sev"],f["sev"])
               imp_color = {"HIGH":"#ef4444","MEDIUM":"#eab308","LOW":"#60a5fa"}.get(f["impact"],"#94a3b8")
               filename  = f["file"].split("/")[-1]
-              rows += f"""<tr data-sev="{f['sev']}" data-cat="{f['cat']}" data-txt="{f['name'].lower()} {f['file'].lower()} {f['cwe'].lower()} {f['owasp'].lower()}">
+              ref_html  = f'<a href="{f["ref"]}" target="_blank" style="color:#60a5fa;font-size:11px;text-decoration:none">Voir reference</a>' if f["ref"] else ""
+              detail_id = f"detail-{i}"
+              rows += f"""<tr class="main-row" data-sev="{f['sev']}" data-cat="{f['cat']}" data-txt="{f['name'].lower()} {f['file'].lower()} {f['cwe'].lower()} {f['owasp'].lower()}" onclick="toggle('{detail_id}')">
+                <td><button class="expand-btn" id="btn-{detail_id}">&#9658;</button></td>
                 <td><span style="background:{sev_color}22;color:{sev_color};padding:2px 8px;border-radius:10px;font-size:11px">{sev_label}</span></td>
                 <td style="color:#f1f5f9">{f['name']}</td>
                 <td><code style="background:#0f172a;padding:2px 5px;border-radius:3px;font-size:10px;color:#7dd3fc">{filename}</code></td>
@@ -157,7 +159,30 @@ jobs:
                 <td><span style="background:#7c3aed22;color:#a78bfa;padding:2px 7px;border-radius:10px;font-size:10px">{f['cwe']}</span></td>
                 <td><span style="background:#0891b222;color:#22d3ee;padding:2px 7px;border-radius:10px;font-size:10px">{f['owasp']}</span></td>
                 <td style="color:{imp_color};font-size:11px;font-weight:500">{f['impact']}</td>
-                <td style="font-size:11px;color:#94a3b8;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{f['msg']}</td>
+              </tr>
+              <tr class="detail-row" id="{detail_id}" style="display:none">
+                <td colspan="8">
+                  <div style="padding:14px 18px;background:#0d1b2e;border-bottom:1px solid #334155">
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:12px">
+                      <div>
+                        <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Fichier complet</div>
+                        <div style="color:#cbd5e1;font-size:12px"><code style="background:#0f172a;padding:2px 5px;border-radius:3px;font-size:10px;color:#7dd3fc">{f['file']}</code></div>
+                      </div>
+                      <div>
+                        <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Regle ID</div>
+                        <div style="color:#64748b;font-size:10px;word-break:break-all">{f['rule']}</div>
+                      </div>
+                      <div>
+                        <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Impact</div>
+                        <div><span style="background:{sev_color}22;color:{sev_color};padding:2px 8px;border-radius:10px;font-size:11px">{f['impact']}</span></div>
+                      </div>
+                    </div>
+                    <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Message</div>
+                    <div style="background:#1e293b;border-left:3px solid #7c3aed;padding:9px 13px;border-radius:0 6px 6px 0;font-size:12px;color:#94a3b8;line-height:1.6">{f['msg']}</div>
+                    <div style="background:#0f172a;border:1px solid #334155;padding:7px 12px;border-radius:6px;font-family:monospace;font-size:11px;color:#4ade80;margin-top:8px">&gt;&gt;&gt; {f['file']}:{f['line']}</div>
+                    <div style="margin-top:8px">{ref_html}</div>
+                  </div>
+                </td>
               </tr>"""
 
           html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Semgrep SAST - ShopVuln</title>
@@ -170,7 +195,9 @@ jobs:
           table{{width:100%;border-collapse:collapse;border:1px solid #334155;border-radius:10px;overflow:hidden}}
           th{{background:#0f172a;padding:10px 12px;font-size:11px;color:#94a3b8;text-align:left}}
           td{{padding:9px 12px;font-size:12px;border-top:1px solid #1e293b}}
-          tbody tr:hover{{background:#1e293b}}</style></head><body>
+          .main-row{{cursor:pointer}}.main-row:hover{{background:#1e293b}}
+          .expand-btn{{background:none;border:none;color:#475569;cursor:pointer;font-size:13px;padding:2px 6px;border-radius:4px}}
+          footer{{text-align:center;color:#334155;font-size:11px;margin-top:20px;padding-top:14px;border-top:1px solid #1e293b}}</style></head><body>
           <h1 style="font-size:20px">Semgrep SAST Report - ShopVuln</h1>
           <p style="color:#94a3b8;font-size:13px;margin-top:4px">{datetime.now().strftime('%d/%m/%Y %H:%M')} · {len(results)} findings</p>
           <div class="grid">
@@ -185,10 +212,30 @@ jobs:
             <input id="q" placeholder="Search (file, rule, CWE, OWASP...)" oninput="filter()">
           </div>
           <table id="t">
-            <thead><tr><th>Severity</th><th>Vulnerability</th><th>File</th><th>Line</th><th>CWE</th><th>OWASP</th><th>Impact</th><th>Message</th></tr></thead>
+            <thead><tr><th style="width:34px"></th><th>Severity</th><th>Vulnerability</th><th>File</th><th>Line</th><th>CWE</th><th>OWASP</th><th>Impact</th></tr></thead>
             <tbody>{rows}</tbody>
           </table>
-          <script>function filter(){{var s=document.getElementById('sev').value,c=document.getElementById('cat').value,q=document.getElementById('q').value.toLowerCase();document.querySelectorAll('#t tbody tr').forEach(function(row){{row.style.display=(!s||row.dataset.sev===s)&&(!c||row.dataset.cat===c)&&(!q||row.dataset.txt.includes(q))?'':'none'}})}}</script>
+          <footer>Semgrep OSS - ShopVuln DevSecOps PFE</footer>
+          <script>
+          function toggle(id){{
+            var row=document.getElementById(id);
+            var btn=document.getElementById('btn-'+id);
+            if(row.style.display==='none'){{row.style.display='';btn.innerHTML='&#9660;'}}
+            else{{row.style.display='none';btn.innerHTML='&#9658;'}}
+          }}
+          function filter(){{
+            var s=document.getElementById('sev').value;
+            var c=document.getElementById('cat').value;
+            var q=document.getElementById('q').value.toLowerCase();
+            document.querySelectorAll('#t tbody tr.main-row').forEach(function(row){{
+              var show=(!s||row.dataset.sev===s)&&(!c||row.dataset.cat===c)&&(!q||row.dataset.txt.includes(q));
+              row.style.display=show?'':'none';
+              var detId=row.querySelector('.expand-btn').id.replace('btn-','');
+              var det=document.getElementById(detId);
+              if(!show&&det)det.style.display='none';
+            }});
+          }}
+          </script>
           </body></html>"""
 
           with open("reports/semgrep-report.html","w") as f:
@@ -202,7 +249,6 @@ jobs:
         with:
           name: semgrep-sast-report
           path: reports/
-
 # ═══════════════════════════════════════════════
 # JOB 2 — IaC CHECKOV
 # ═══════════════════════════════════════════════
