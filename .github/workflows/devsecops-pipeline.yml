@@ -100,6 +100,7 @@ jobs:
         run: |
           python3 << 'EOF'
           import json
+          from datetime import datetime
 
           try:
               with open("reports/semgrep-report.json") as f:
@@ -126,199 +127,74 @@ jobs:
               name   = rule.split(".")[-1].replace("-"," ").title()
               path   = r.get("path","")
               line   = r.get("start",{}).get("line","")
-              msg    = r.get("extra",{}).get("message","").replace('"', '&quot;').replace("'","&#39;")
+              msg    = r.get("extra",{}).get("message","").replace('"','&quot;').replace("'","&#39;")
               impact = meta.get("impact","N/A")
               parts  = rule.split(".")
               cat    = parts[-2].replace("-"," ").title() if len(parts) >= 2 else "Other"
-
               findings.append({
-                  "sev":    sev,
-                  "rule":   rule,
-                  "name":   name,
-                  "file":   path,
-                  "line":   str(line),
-                  "cwe":    cwes[0].split(":")[0]  if cwes   else "N/A",
-                  "owasp":  owasps[0].split(" - ")[0] if owasps else "N/A",
-                  "impact": impact,
-                  "msg":    msg,
-                  "cat":    cat,
-                  "ref":    refs[0] if refs else "",
+                  "sev": sev, "rule": rule, "name": name, "file": path,
+                  "line": str(line), "cwe": cwes[0].split(":")[0] if cwes else "N/A",
+                  "owasp": owasps[0].split(" - ")[0] if owasps else "N/A",
+                  "impact": impact, "msg": msg, "cat": cat,
+                  "ref": refs[0] if refs else ""
               })
 
-          import json as _json
-          findings_json = _json.dumps(findings, ensure_ascii=False)
-
+          findings_json = json.dumps(findings, ensure_ascii=False)
           cats = sorted(set(f["cat"] for f in findings))
           cat_options = "".join(f'<option value="{c}">{c}</option>' for c in cats)
 
-          html = f"""<!DOCTYPE html>
-          <html lang="fr">
-          <head>
-          <meta charset="UTF-8">
-          <title>Semgrep SAST - ShopVuln</title>
-          <style>
-          *{{margin:0;padding:0;box-sizing:border-box}}
-          body{{font-family:Segoe UI,system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px;min-height:100vh}}
-          .header{{margin-bottom:18px}}
-          .header h1{{font-size:18px;font-weight:500;color:#f1f5f9}}
-          .header p{{font-size:12px;color:#64748b;margin-top:4px}}
-          .kpis{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}}
-          .kpi{{background:#1e293b;border-radius:10px;padding:14px;text-align:center;border:1px solid #334155}}
-          .kpi .n{{font-size:30px;font-weight:500;line-height:1}}
-          .kpi .l{{font-size:10px;color:#64748b;margin-top:5px;text-transform:uppercase;letter-spacing:.05em}}
-          .filters{{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}}
-          .filters select,.filters input{{background:#1e293b;border:1px solid #334155;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:12px;outline:none}}
-          .filters input{{flex:1;min-width:160px}}
-          .table-wrap{{border:1px solid #334155;border-radius:10px;overflow:hidden}}
-          table{{width:100%;border-collapse:collapse;font-size:12px}}
-          thead th{{background:#0f172a;padding:9px 10px;font-size:10px;color:#64748b;text-align:left;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #334155}}
-          tbody tr.main-row{{border-top:1px solid #1e293b;cursor:pointer;transition:background .1s}}
-          tbody tr.main-row:hover{{background:#1e293b}}
-          td{{padding:9px 10px;vertical-align:middle}}
-          .badge{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:500}}
-          .sev-ERROR{{background:#ef444422;color:#ef4444}}
-          .sev-WARNING{{background:#eab30822;color:#eab308}}
-          .sev-INFO{{background:#60a5fa22;color:#60a5fa}}
-          code{{background:#0f172a;padding:2px 5px;border-radius:3px;font-size:10px;font-family:'Courier New',monospace;color:#7dd3fc}}
-          .cwe{{background:#7c3aed22;color:#a78bfa;padding:2px 7px;border-radius:10px;font-size:10px}}
-          .owasp{{background:#0891b222;color:#22d3ee;padding:2px 7px;border-radius:10px;font-size:10px}}
-          .expand-btn{{background:none;border:none;color:#475569;cursor:pointer;padding:2px 6px;border-radius:4px;font-size:13px;line-height:1}}
-          .detail-row td{{padding:0}}
-          .detail-cell{{padding:14px 18px;background:#0d1b2e;border-top:1px solid #1e293b;border-bottom:1px solid #334155}}
-          .det-grid{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:12px}}
-          .det-label{{color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}}
-          .det-val{{color:#cbd5e1;font-size:12px;word-break:break-all}}
-          .msg-box{{background:#1e293b;border-left:3px solid #7c3aed;padding:9px 13px;border-radius:0 6px 6px 0;font-size:12px;color:#94a3b8;line-height:1.6;margin-top:4px}}
-          .loc-box{{background:#0f172a;border:1px solid #334155;padding:7px 12px;border-radius:6px;font-family:'Courier New',monospace;font-size:11px;color:#4ade80;margin-top:8px}}
-          .ref-link{{color:#60a5fa;font-size:11px;text-decoration:none;margin-top:6px;display:inline-block}}
-          .empty{{padding:32px;text-align:center;color:#475569;font-size:13px}}
-          footer{{text-align:center;color:#334155;font-size:11px;margin-top:20px;padding-top:14px;border-top:1px solid #1e293b}}
-          </style>
-          </head>
-          <body>
+          rows = ""
+          for f in findings:
+              sev_color = {"ERROR":"#ef4444","WARNING":"#eab308","INFO":"#60a5fa"}.get(f["sev"],"#94a3b8")
+              sev_label = {"ERROR":"HIGH","WARNING":"MEDIUM","INFO":"INFO"}.get(f["sev"],f["sev"])
+              imp_color = {"HIGH":"#ef4444","MEDIUM":"#eab308","LOW":"#60a5fa"}.get(f["impact"],"#94a3b8")
+              filename  = f["file"].split("/")[-1]
+              rows += f"""<tr data-sev="{f['sev']}" data-cat="{f['cat']}" data-txt="{f['name'].lower()} {f['file'].lower()} {f['cwe'].lower()} {f['owasp'].lower()}">
+                <td><span style="background:{sev_color}22;color:{sev_color};padding:2px 8px;border-radius:10px;font-size:11px">{sev_label}</span></td>
+                <td style="color:#f1f5f9">{f['name']}</td>
+                <td><code style="background:#0f172a;padding:2px 5px;border-radius:3px;font-size:10px;color:#7dd3fc">{filename}</code></td>
+                <td style="font-family:monospace;font-size:11px;color:#64748b">{f['line']}</td>
+                <td><span style="background:#7c3aed22;color:#a78bfa;padding:2px 7px;border-radius:10px;font-size:10px">{f['cwe']}</span></td>
+                <td><span style="background:#0891b222;color:#22d3ee;padding:2px 7px;border-radius:10px;font-size:10px">{f['owasp']}</span></td>
+                <td style="color:{imp_color};font-size:11px;font-weight:500">{f['impact']}</td>
+                <td style="font-size:11px;color:#94a3b8;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{f['msg']}</td>
+              </tr>"""
 
-          <div class="header">
-            <h1>Semgrep SAST - ShopVuln</h1>
-            <p>DevSecOps PFE &middot; {len(results)} findings</p>
+          html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Semgrep SAST - ShopVuln</title>
+          <style>*{{margin:0;padding:0;box-sizing:border-box}}body{{font-family:Segoe UI,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px}}
+          .grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0 24px}}
+          .card{{background:#1e293b;padding:16px;border-radius:10px;border:1px solid #334155;text-align:center}}
+          .num{{font-size:32px;font-weight:500}}
+          .filters{{display:flex;gap:8px;margin-bottom:14px}}
+          .filters select,.filters input{{background:#1e293b;border:1px solid #334155;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:12px}}
+          table{{width:100%;border-collapse:collapse;border:1px solid #334155;border-radius:10px;overflow:hidden}}
+          th{{background:#0f172a;padding:10px 12px;font-size:11px;color:#94a3b8;text-align:left}}
+          td{{padding:9px 12px;font-size:12px;border-top:1px solid #1e293b}}
+          tbody tr:hover{{background:#1e293b}}</style></head><body>
+          <h1 style="font-size:20px">Semgrep SAST Report - ShopVuln</h1>
+          <p style="color:#94a3b8;font-size:13px;margin-top:4px">{datetime.now().strftime('%d/%m/%Y %H:%M')} · {len(results)} findings</p>
+          <div class="grid">
+            <div class="card"><div class="num" style="color:#60a5fa">{len(results)}</div><div style="font-size:12px;color:#94a3b8">Total</div></div>
+            <div class="card"><div class="num" style="color:#ef4444">{len(errors)}</div><div style="font-size:12px;color:#94a3b8">High (ERROR)</div></div>
+            <div class="card"><div class="num" style="color:#eab308">{len(warnings)}</div><div style="font-size:12px;color:#94a3b8">Medium (WARNING)</div></div>
+            <div class="card"><div class="num" style="color:#a78bfa">{files}</div><div style="font-size:12px;color:#94a3b8">Fichiers</div></div>
           </div>
-
-          <div class="kpis">
-            <div class="kpi"><div class="n" style="color:#60a5fa">{len(results)}</div><div class="l">Total</div></div>
-            <div class="kpi"><div class="n" style="color:#ef4444">{len(errors)}</div><div class="l">High (ERROR)</div></div>
-            <div class="kpi"><div class="n" style="color:#eab308">{len(warnings)}</div><div class="l">Medium (WARNING)</div></div>
-            <div class="kpi"><div class="n" style="color:#a78bfa">{files}</div><div class="l">Fichiers</div></div>
-          </div>
-
           <div class="filters">
-            <select id="f-sev" onchange="render()">
-              <option value="">Toutes severites</option>
-              <option value="ERROR">ERROR - High</option>
-              <option value="WARNING">WARNING - Medium</option>
-              <option value="INFO">INFO</option>
-            </select>
-            <select id="f-cat" onchange="render()">
-              <option value="">Toutes categories</option>
-              {cat_options}
-            </select>
-            <input id="f-q" placeholder="Rechercher (fichier, regle, CWE, OWASP...)" oninput="render()">
+            <select id="sev" onchange="filter()"><option value="">All Severities</option><option value="ERROR">HIGH (ERROR)</option><option value="WARNING">MEDIUM (WARNING)</option><option value="INFO">INFO</option></select>
+            <select id="cat" onchange="filter()"><option value="">All Categories</option>{cat_options}</select>
+            <input id="q" placeholder="Search (file, rule, CWE, OWASP...)" oninput="filter()">
           </div>
+          <table id="t">
+            <thead><tr><th>Severity</th><th>Vulnerability</th><th>File</th><th>Line</th><th>CWE</th><th>OWASP</th><th>Impact</th><th>Message</th></tr></thead>
+            <tbody>{rows}</tbody>
+          </table>
+          <script>function filter(){{var s=document.getElementById('sev').value,c=document.getElementById('cat').value,q=document.getElementById('q').value.toLowerCase();document.querySelectorAll('#t tbody tr').forEach(function(row){{row.style.display=(!s||row.dataset.sev===s)&&(!c||row.dataset.cat===c)&&(!q||row.dataset.txt.includes(q))?'':'none'}})}}</script>
+          </body></html>"""
 
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th style="width:34px"></th>
-                  <th style="width:34px">#</th>
-                  <th>Severite</th>
-                  <th>Vulnerabilite</th>
-                  <th>Fichier</th>
-                  <th style="width:60px">Ligne</th>
-                  <th>CWE</th>
-                  <th>OWASP</th>
-                  <th>Impact</th>
-                </tr>
-              </thead>
-              <tbody id="tbody"></tbody>
-            </table>
-          </div>
-
-          <footer>Semgrep OSS - ShopVuln DevSecOps PFE</footer>
-
-          <script>
-          const DATA = {findings_json};
-          let expanded = {{}};
-
-          function sevLabel(s) {{
-            return s === 'ERROR' ? 'HIGH' : s === 'WARNING' ? 'MEDIUM' : 'INFO';
-          }}
-          function impactColor(v) {{
-            return v === 'HIGH' ? '#ef4444' : v === 'MEDIUM' ? '#eab308' : v === 'LOW' ? '#60a5fa' : '#94a3b8';
-          }}
-
-          function render() {{
-            const fs = document.getElementById('f-sev').value;
-            const fc = document.getElementById('f-cat').value;
-            const fq = document.getElementById('f-q').value.toLowerCase();
-            const filtered = DATA.filter(function(d) {{
-              return (!fs || d.sev === fs) &&
-                    (!fc || d.cat === fc) &&
-                    (!fq || (d.name + d.file + d.cwe + d.rule + d.owasp).toLowerCase().includes(fq));
-            }});
-            const tb = document.getElementById('tbody');
-            if (!filtered.length) {{
-              tb.innerHTML = '<tr><td colspan="9"><div class="empty">Aucun resultat pour ce filtre</div></td></tr>';
-              return;
-            }}
-            let rows = '';
-            for (let i = 0; i < filtered.length; i++) {{
-              const d = filtered[i];
-              const key = d.rule + '_' + d.line;
-              const isOpen = expanded[key];
-              let detail = '';
-              if (isOpen) {{
-                const refLink = d.ref ? '<a class="ref-link" href="' + d.ref + '" target="_blank">Voir la reference</a>' : '';
-                detail = '<tr class="detail-row"><td colspan="9"><div class="detail-cell">' +
-                  '<div class="det-grid">' +
-                    '<div><div class="det-label">Fichier complet</div><div class="det-val"><code>' + d.file + '</code></div></div>' +
-                    '<div><div class="det-label">Regle ID</div><div class="det-val" style="font-size:10px;color:#64748b">' + d.rule + '</div></div>' +
-                    '<div><div class="det-label">Impact</div><div class="det-val"><span class="badge sev-' + d.sev + '">' + d.impact + '</span></div></div>' +
-                  '</div>' +
-                  '<div class="det-label">Message</div>' +
-                  '<div class="msg-box">' + d.msg + '</div>' +
-                  '<div class="loc-box">&gt;&gt;&gt; ' + d.file + ':' + d.line + '</div>' +
-                  refLink +
-                  '</div></td></tr>';
-              }}
-              rows += '<tr class="main-row" onclick="toggle(\'' + key + '\')">' +
-                '<td><button class="expand-btn">' + (isOpen ? '&#9660;' : '&#9658;') + '</button></td>' +
-                '<td style="color:#475569">' + (i + 1) + '</td>' +
-                '<td><span class="badge sev-' + d.sev + '">' + sevLabel(d.sev) + '</span></td>' +
-                '<td style="color:#f1f5f9">' + d.name + '</td>' +
-                '<td><code>' + d.file.split('/').pop() + '</code></td>' +
-                '<td style="color:#64748b;font-family:monospace;font-size:11px">' + d.line + '</td>' +
-                '<td><span class="cwe">' + d.cwe + '</span></td>' +
-                '<td><span class="owasp">' + d.owasp + '</span></td>' +
-                '<td style="color:' + impactColor(d.impact) + ';font-size:11px;font-weight:500">' + d.impact + '</td>' +
-              '</tr>' + detail;
-            }}
-            tb.innerHTML = rows;
-          }}
-
-          function toggle(key) {{
-            expanded[key] = !expanded[key];
-            render();
-          }}
-
-          render();
-          </script>
-          </body>
-          </html>"""
-
-                    with open("reports/semgrep-report.html", "w", encoding="utf-8") as f:
-                        f.write(html)
-                    print(f"Report generated: {len(results)} findings ({len(errors)} high, {len(warnings)} medium, {len(infos)} info)")
-                    EOF
-        continue-on-error: true
+          with open("reports/semgrep-report.html","w") as f:
+              f.write(html)
+          print(f"Semgrep report — {len(results)} findings ({len(errors)} high, {len(warnings)} medium)")
+          EOF
 
       - name: Upload Semgrep Reports
         uses: actions/upload-artifact@v4
