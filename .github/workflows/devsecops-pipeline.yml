@@ -135,7 +135,7 @@ jobs:
                   "sev": sev, "rule": rule, "name": name, "file": path,
                   "line": str(line), "cwe": cwes[0].split(":")[0] if cwes else "N/A",
                   "owasp": owasps[0].split(" - ")[0] if owasps else "N/A",
-                  "impact": impact, "msg": msg, "cat": cat,
+                  "msg": msg, "cat": cat,
                   "ref": refs[0] if refs else ""
               })
 
@@ -146,7 +146,6 @@ jobs:
           for i, f in enumerate(findings):
               sev_color = {"ERROR":"#ef4444","WARNING":"#eab308","INFO":"#60a5fa"}.get(f["sev"],"#94a3b8")
               sev_label = {"ERROR":"HIGH","WARNING":"MEDIUM","INFO":"INFO"}.get(f["sev"],f["sev"])
-              imp_color = {"HIGH":"#ef4444","MEDIUM":"#eab308","LOW":"#60a5fa"}.get(f["impact"],"#94a3b8")
               filename  = f["file"].split("/")[-1]
               ref_html  = f'<a href="{f["ref"]}" target="_blank" style="color:#60a5fa;font-size:11px;text-decoration:none">Voir reference</a>' if f["ref"] else ""
               detail_id = f"detail-{i}"
@@ -158,12 +157,11 @@ jobs:
                 <td style="font-family:monospace;font-size:11px;color:#64748b">{f['line']}</td>
                 <td><span style="background:#7c3aed22;color:#a78bfa;padding:2px 7px;border-radius:10px;font-size:10px">{f['cwe']}</span></td>
                 <td><span style="background:#0891b222;color:#22d3ee;padding:2px 7px;border-radius:10px;font-size:10px">{f['owasp']}</span></td>
-                <td style="color:{imp_color};font-size:11px;font-weight:500">{f['impact']}</td>
               </tr>
               <tr class="detail-row" id="{detail_id}" style="display:none">
-                <td colspan="8">
+                <td colspan="7">
                   <div style="padding:14px 18px;background:#0d1b2e;border-bottom:1px solid #334155">
-                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:12px">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
                       <div>
                         <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Fichier complet</div>
                         <div style="color:#cbd5e1;font-size:12px"><code style="background:#0f172a;padding:2px 5px;border-radius:3px;font-size:10px;color:#7dd3fc">{f['file']}</code></div>
@@ -171,10 +169,6 @@ jobs:
                       <div>
                         <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Regle ID</div>
                         <div style="color:#64748b;font-size:10px;word-break:break-all">{f['rule']}</div>
-                      </div>
-                      <div>
-                        <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Impact</div>
-                        <div><span style="background:{sev_color}22;color:{sev_color};padding:2px 8px;border-radius:10px;font-size:11px">{f['impact']}</span></div>
                       </div>
                     </div>
                     <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Message</div>
@@ -212,7 +206,7 @@ jobs:
             <input id="q" placeholder="Search (file, rule, CWE, OWASP...)" oninput="filter()">
           </div>
           <table id="t">
-            <thead><tr><th style="width:34px"></th><th>Severity</th><th>Vulnerability</th><th>File</th><th>Line</th><th>CWE</th><th>OWASP</th><th>Impact</th></tr></thead>
+            <thead><tr><th style="width:34px"></th><th>Severity</th><th>Vulnerability</th><th>File</th><th>Line</th><th>CWE</th><th>OWASP</th></tr></thead>
             <tbody>{rows}</tbody>
           </table>
           <footer>Semgrep OSS - ShopVuln DevSecOps PFE</footer>
