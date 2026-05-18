@@ -155,12 +155,12 @@ jobs:
           <html lang="fr">
           <head>
           <meta charset="UTF-8">
-          <title>Semgrep SAST — ShopVuln</title>
+          <title>Semgrep SAST - ShopVuln</title>
           <style>
           *{{margin:0;padding:0;box-sizing:border-box}}
           body{{font-family:Segoe UI,system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px;min-height:100vh}}
           .header{{margin-bottom:18px}}
-          .header h1{{font-size:18px;font-weight:500;color:#f1f5f9;display:flex;align-items:center;gap:8px}}
+          .header h1{{font-size:18px;font-weight:500;color:#f1f5f9}}
           .header p{{font-size:12px;color:#64748b;margin-top:4px}}
           .kpis{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}}
           .kpi{{background:#1e293b;border-radius:10px;padding:14px;text-align:center;border:1px solid #334155}}
@@ -169,7 +169,6 @@ jobs:
           .filters{{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}}
           .filters select,.filters input{{background:#1e293b;border:1px solid #334155;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:12px;outline:none}}
           .filters input{{flex:1;min-width:160px}}
-          .filters select:focus,.filters input:focus{{border-color:#475569}}
           .table-wrap{{border:1px solid #334155;border-radius:10px;overflow:hidden}}
           table{{width:100%;border-collapse:collapse;font-size:12px}}
           thead th{{background:#0f172a;padding:9px 10px;font-size:10px;color:#64748b;text-align:left;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #334155}}
@@ -183,8 +182,7 @@ jobs:
           code{{background:#0f172a;padding:2px 5px;border-radius:3px;font-size:10px;font-family:'Courier New',monospace;color:#7dd3fc}}
           .cwe{{background:#7c3aed22;color:#a78bfa;padding:2px 7px;border-radius:10px;font-size:10px}}
           .owasp{{background:#0891b222;color:#22d3ee;padding:2px 7px;border-radius:10px;font-size:10px}}
-          .expand-btn{{background:none;border:none;color:#475569;cursor:pointer;padding:2px 6px;border-radius:4px;font-size:13px;line-height:1;transition:color .15s}}
-          .expand-btn:hover{{color:#94a3b8}}
+          .expand-btn{{background:none;border:none;color:#475569;cursor:pointer;padding:2px 6px;border-radius:4px;font-size:13px;line-height:1}}
           .detail-row td{{padding:0}}
           .detail-cell{{padding:14px 18px;background:#0d1b2e;border-top:1px solid #1e293b;border-bottom:1px solid #334155}}
           .det-grid{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:12px}}
@@ -193,7 +191,6 @@ jobs:
           .msg-box{{background:#1e293b;border-left:3px solid #7c3aed;padding:9px 13px;border-radius:0 6px 6px 0;font-size:12px;color:#94a3b8;line-height:1.6;margin-top:4px}}
           .loc-box{{background:#0f172a;border:1px solid #334155;padding:7px 12px;border-radius:6px;font-family:'Courier New',monospace;font-size:11px;color:#4ade80;margin-top:8px}}
           .ref-link{{color:#60a5fa;font-size:11px;text-decoration:none;margin-top:6px;display:inline-block}}
-          .ref-link:hover{{text-decoration:underline}}
           .empty{{padding:32px;text-align:center;color:#475569;font-size:13px}}
           footer{{text-align:center;color:#334155;font-size:11px;margin-top:20px;padding-top:14px;border-top:1px solid #1e293b}}
           </style>
@@ -201,8 +198,8 @@ jobs:
           <body>
 
           <div class="header">
-            <h1>&#x1F6E1; Semgrep SAST &mdash; ShopVuln</h1>
-            <p id="ts">DevSecOps PFE &middot; {len(results)} findings</p>
+            <h1>Semgrep SAST - ShopVuln</h1>
+            <p>DevSecOps PFE &middot; {len(results)} findings</p>
           </div>
 
           <div class="kpis">
@@ -214,16 +211,16 @@ jobs:
 
           <div class="filters">
             <select id="f-sev" onchange="render()">
-              <option value="">Toutes s&eacute;v&eacute;rit&eacute;s</option>
-              <option value="ERROR">ERROR &mdash; High</option>
-              <option value="WARNING">WARNING &mdash; Medium</option>
+              <option value="">Toutes severites</option>
+              <option value="ERROR">ERROR - High</option>
+              <option value="WARNING">WARNING - Medium</option>
               <option value="INFO">INFO</option>
             </select>
             <select id="f-cat" onchange="render()">
-              <option value="">Toutes cat&eacute;gories</option>
+              <option value="">Toutes categories</option>
               {cat_options}
             </select>
-            <input id="f-q" placeholder="Rechercher (fichier, r&egrave;gle, CWE, OWASP&hellip;)" oninput="render()">
+            <input id="f-q" placeholder="Rechercher (fichier, regle, CWE, OWASP...)" oninput="render()">
           </div>
 
           <div class="table-wrap">
@@ -232,8 +229,8 @@ jobs:
                 <tr>
                   <th style="width:34px"></th>
                   <th style="width:34px">#</th>
-                  <th>S&eacute;v&eacute;rit&eacute;</th>
-                  <th>Vuln&eacute;rabilit&eacute;</th>
+                  <th>Severite</th>
+                  <th>Vulnerabilite</th>
                   <th>Fichier</th>
                   <th style="width:60px">Ligne</th>
                   <th>CWE</th>
@@ -245,76 +242,69 @@ jobs:
             </table>
           </div>
 
-          <footer>Semgrep OSS &mdash; ShopVuln DevSecOps PFE</footer>
+          <footer>Semgrep OSS - ShopVuln DevSecOps PFE</footer>
 
           <script>
           const DATA = {findings_json};
           let expanded = {{}};
 
-          function sevLabel(s){{ return s==='ERROR'?'HIGH':s==='WARNING'?'MEDIUM':'INFO'; }}
-          function impactColor(v){{
-            return v==='HIGH'?'#ef4444':v==='MEDIUM'?'#eab308':v==='LOW'?'#60a5fa':'#94a3b8';
+          function sevLabel(s) {{
+            return s === 'ERROR' ? 'HIGH' : s === 'WARNING' ? 'MEDIUM' : 'INFO';
+          }}
+          function impactColor(v) {{
+            return v === 'HIGH' ? '#ef4444' : v === 'MEDIUM' ? '#eab308' : v === 'LOW' ? '#60a5fa' : '#94a3b8';
           }}
 
-          function render(){{
+          function render() {{
             const fs = document.getElementById('f-sev').value;
             const fc = document.getElementById('f-cat').value;
             const fq = document.getElementById('f-q').value.toLowerCase();
-            const filtered = DATA.filter(d =>
-              (!fs || d.sev === fs) &&
-              (!fc || d.cat === fc) &&
-              (!fq || (d.name+d.file+d.cwe+d.rule+d.owasp).toLowerCase().includes(fq))
-            );
+            const filtered = DATA.filter(function(d) {{
+              return (!fs || d.sev === fs) &&
+                    (!fc || d.cat === fc) &&
+                    (!fq || (d.name + d.file + d.cwe + d.rule + d.owasp).toLowerCase().includes(fq));
+            }});
             const tb = document.getElementById('tbody');
             if (!filtered.length) {{
-              tb.innerHTML = '<tr><td colspan="9"><div class="empty">Aucun r&eacute;sultat pour ce filtre</div></td></tr>';
+              tb.innerHTML = '<tr><td colspan="9"><div class="empty">Aucun resultat pour ce filtre</div></td></tr>';
               return;
             }}
-            tb.innerHTML = filtered.map((d, i) => {{
+            let rows = '';
+            for (let i = 0; i < filtered.length; i++) {{
+              const d = filtered[i];
               const key = d.rule + '_' + d.line;
               const isOpen = expanded[key];
-              const detail = isOpen ? `
-              <tr class="detail-row">
-                <td colspan="9">
-                  <div class="detail-cell">
-                    <div class="det-grid">
-                      <div>
-                        <div class="det-label">Fichier complet</div>
-                        <div class="det-val"><code>${{d.file}}</code></div>
-                      </div>
-                      <div>
-                        <div class="det-label">R&egrave;gle ID</div>
-                        <div class="det-val" style="font-size:10px;color:#64748b">${{d.rule}}</div>
-                      </div>
-                      <div>
-                        <div class="det-label">Impact</div>
-                        <div class="det-val"><span class="badge sev-${{d.sev}}">${{d.impact}}</span></div>
-                      </div>
-                    </div>
-                    <div class="det-label">Message</div>
-                    <div class="msg-box">${{d.msg}}</div>
-                    <div class="loc-box">&gt;&gt;&gt; ${{d.file}}:${{d.line}}</div>
-                    ${{d.ref ? '<a class="ref-link" href="'+d.ref+'" target="_blank">&#128279; Voir la r&eacute;f&eacute;rence</a>' : ''}}
-                  </div>
-                </td>
-              </tr>` : '';
-
-              return `
-              <tr class="main-row" onclick="toggle('${{key}}')">
-                <td><button class="expand-btn" title="D&eacute;tails">${{isOpen?'&#9660;':'&#9658;'}}</button></td>
-                <td style="color:#475569">${{i+1}}</td>
-                <td><span class="badge sev-${{d.sev}}">${{sevLabel(d.sev)}}</span></td>
-                <td style="color:#f1f5f9">${{d.name}}</td>
-                <td><code>${{d.file.split('/').pop()}}</code></td>
-                <td style="color:#64748b;font-family:monospace;font-size:11px">${{d.line}}</td>
-                <td><span class="cwe">${{d.cwe}}</span></td>
-                <td><span class="owasp">${{d.owasp}}</span></td>
-                <td style="color:${{impactColor(d.impact)}};font-size:11px;font-weight:500">${{d.impact}}</td>
-              </tr>${{detail}}`;
-            }}).join('');
+              let detail = '';
+              if (isOpen) {{
+                const refLink = d.ref ? '<a class="ref-link" href="' + d.ref + '" target="_blank">Voir la reference</a>' : '';
+                detail = '<tr class="detail-row"><td colspan="9"><div class="detail-cell">' +
+                  '<div class="det-grid">' +
+                    '<div><div class="det-label">Fichier complet</div><div class="det-val"><code>' + d.file + '</code></div></div>' +
+                    '<div><div class="det-label">Regle ID</div><div class="det-val" style="font-size:10px;color:#64748b">' + d.rule + '</div></div>' +
+                    '<div><div class="det-label">Impact</div><div class="det-val"><span class="badge sev-' + d.sev + '">' + d.impact + '</span></div></div>' +
+                  '</div>' +
+                  '<div class="det-label">Message</div>' +
+                  '<div class="msg-box">' + d.msg + '</div>' +
+                  '<div class="loc-box">&gt;&gt;&gt; ' + d.file + ':' + d.line + '</div>' +
+                  refLink +
+                  '</div></td></tr>';
+              }}
+              rows += '<tr class="main-row" onclick="toggle(\'' + key + '\')">' +
+                '<td><button class="expand-btn">' + (isOpen ? '&#9660;' : '&#9658;') + '</button></td>' +
+                '<td style="color:#475569">' + (i + 1) + '</td>' +
+                '<td><span class="badge sev-' + d.sev + '">' + sevLabel(d.sev) + '</span></td>' +
+                '<td style="color:#f1f5f9">' + d.name + '</td>' +
+                '<td><code>' + d.file.split('/').pop() + '</code></td>' +
+                '<td style="color:#64748b;font-family:monospace;font-size:11px">' + d.line + '</td>' +
+                '<td><span class="cwe">' + d.cwe + '</span></td>' +
+                '<td><span class="owasp">' + d.owasp + '</span></td>' +
+                '<td style="color:' + impactColor(d.impact) + ';font-size:11px;font-weight:500">' + d.impact + '</td>' +
+              '</tr>' + detail;
+            }}
+            tb.innerHTML = rows;
           }}
 
-          function toggle(key){{
+          function toggle(key) {{
             expanded[key] = !expanded[key];
             render();
           }}
