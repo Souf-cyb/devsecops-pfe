@@ -16,8 +16,12 @@
 </div>
 
 {% if query %}
-<div style="margin-bottom:20px;font-size:13px;color:#94a3b8;">
-    Results for: <b style="color:#e2e8f0;">{{ query }}</b>
+<div style="margin-bottom:20px;padding:12px 16px;background:#f59e0b11;border:1px solid #f59e0b44;border-radius:8px;display:flex;align-items:center;justify-content:space-between;">
+    <div style="font-size:13px;color:#94a3b8;">
+        <!-- FAILLE XSS RÉFLÉCHI : query affichée sans échappement -->
+        Résultats pour : <b style="color:#e2e8f0;">{{ query|safe }}</b>
+    </div>
+    <span style="font-size:11px;background:#f59e0b22;color:#f59e0b;padding:3px 10px;border-radius:20px;font-weight:500;">⚡ XSS Réfléchi actif</span>
 </div>
 {% endif %}
 
@@ -46,7 +50,8 @@
 </div>
 {% else %}
 <div style="grid-column:1/-1;text-align:center;padding:60px;color:#64748b;">
-    No products found for "{{ query }}"
+    <!-- FAILLE XSS RÉFLÉCHI : query affichée sans échappement -->
+    No products found for "{{ query|safe }}"
 </div>
 {% endfor %}
 </div>

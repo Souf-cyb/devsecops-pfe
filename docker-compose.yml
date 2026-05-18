@@ -1,33 +1,17 @@
 version: '3.8'
+
 services:
-  vulnshop:
-    build: ./app
+  web:
+    build: ./shopvuln
     ports:
-      - "80:80"
-    environment:
-      DB_HOST: mysql
-      DB_USER: root
-      DB_PASS: root
-      DB_NAME: vulnshop
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      - vulnnet
-  mysql:
-    image: mysql:5.7
-    environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: vulnshop
+      # ⚠️ MISCONFIG : Exposer le port sur toutes les interfaces (0.0.0.0) au lieu de 127.0.0.1
+      - "5000:5000"
     volumes:
-      - ./app/db/init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - vulnnet
-networks:
-  vulnnet:
-    driver: bridge
+      - ./shopvuln/app/shop.db:/app/app/shop.db
+    environment:
+      # ⚠️ MISCONFIG : Mode Debug activé en environnement de développement/fausse production
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      # ⚠️ MISCONFIG : Secrets/Clés API codés en dur (Hardcoded Secrets pour déclencher Trivy/Gitleaks)
+      - FLASK_SECRET_KEY=super-secret-key-12345
+      - DEPLOYMENT_TOKEN=ghp_vulnerableTokenExampleFake123456789
