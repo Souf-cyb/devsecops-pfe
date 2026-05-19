@@ -34,31 +34,18 @@ jobs:
           ls -la shopvuln/ || echo "shopvuln/ not found!"
 
       - name: Run Gitleaks
-        run: |
-          mkdir -p reports
-          docker run --rm \
-            -v ${{ github.workspace }}:/repo \
-            -v ${{ github.workspace }}/reports:/report \
-            ghcr.io/gitleaks/gitleaks:latest \
-            detect \
-            --source="/repo" \
-            --report-format sarif \
-            --report-path /report/gitleaks.sarif \
-            --verbose \
-            --no-git || true
-
-      - name: Show Gitleaks results
-        if: always()
-        run: |
-          echo "=== Gitleaks SARIF ==="
-          cat reports/gitleaks.sarif || echo "No report found"
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        continue-on-error: true
 
       - name: Upload Gitleaks Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: gitleaks-report
-          path: reports/gitleaks.sarif
+          path: results.sarif
           if-no-files-found: warn
 # ═══════════════════════════════════════════════
 # JOB 1 — SAST SEMGREP
@@ -720,28 +707,13 @@ jobs:
                   return f"https://nvd.nist.gov/vuln/detail/{vid}"
               return f"https://osv.dev/vulnerability/{vid}"
 
-          def bar(val, maxi, color):
-              pct = int((val/maxi)*100) if maxi > 0 else 0
-              return f'<div style="height:5px;background:#0f172a;border-radius:3px;margin-top:5px"><div style="height:5px;width:{pct}%;background:{color};border-radius:3px"></div></div>'
-
-          def badge(s):
-              c = {"CRITICAL":"#ef4444","HIGH":"#f97316","MEDIUM":"#eab308"}.get(s,"#94a3b8")
-              return f'<span style="background:{c}22;color:{c};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">{s}</span>'
-
-          def status(ok):
-              return '<span style="color:#22c55e;font-weight:500">✓ OK</span>' if ok else '<span style="color:#ef4444;font-weight:500">✗ KO</span>'
-
-          # ══════════════════════════════════════
-          # SEMGREP
-          # ══════════════════════════════════════
+          # ── SEMGREP ──────────────────────────────────────────────────
           sem_raw = safe_load("reports/semgrep/**/*.json")
           sem_results = []
           if isinstance(sem_raw, dict):
               sem_results = sem_raw.get("results", [])
           elif isinstance(sem_raw, list):
               sem_results = sem_raw
-
-          # Filtre les vrais findings
           sem_results = [r for r in sem_results if isinstance(r, dict) and "check_id" in r]
           sem_high = [r for r in sem_results if r.get("extra",{}).get("severity") == "ERROR"]
           sem_med  = [r for r in sem_results if r.get("extra",{}).get("severity") == "WARNING"]
@@ -753,61 +725,42 @@ jobs:
               refs = meta.get("references",[])
               sem_findings.append({
                   "tool":"Semgrep","severity":"HIGH",
-                  "id": cwes[0] if cwes else "N/A",
+                  "id": cwes[0].split(":")[0] if cwes else "N/A",
                   "pkg": r.get("check_id","").split(".")[-1],
                   "file": f"{r.get('path','')}:{r.get('start',{}).get('line','')}",
                   "desc": r.get("extra",{}).get("message","")[:120],
                   "link": refs[0] if refs else ""
               })
-
           print(f"[OK] Semgrep: {len(sem_results)} total, {len(sem_high)} high, {len(sem_med)} medium")
 
-          # ══════════════════════════════════════
-          # ZAP
-          # ══════════════════════════════════════
+          # ── ZAP ──────────────────────────────────────────────────────
           zap_raw = safe_load("reports/dast-combined/**/zap-full-report.json")
           zap_high = zap_med = 0
           zap_findings = []
 
           if zap_raw is not None:
-              # Normalise sites
               sites = []
               if isinstance(zap_raw, dict):
                   s = zap_raw.get("site", [])
-                  if isinstance(s, dict):
-                      sites = [s]
-                  elif isinstance(s, list):
-                      sites = s
+                  sites = [s] if isinstance(s, dict) else s if isinstance(s, list) else []
               elif isinstance(zap_raw, list):
                   for item in zap_raw:
                       if isinstance(item, dict):
-                          if "alerts" in item:
-                              sites.append(item)
+                          if "alerts" in item: sites.append(item)
                           elif "site" in item:
                               s = item["site"]
-                              if isinstance(s, dict):
-                                  sites.append(s)
-                              elif isinstance(s, list):
-                                  sites.extend(s)
-
+                              if isinstance(s, dict): sites.append(s)
+                              elif isinstance(s, list): sites.extend(s)
               for site in sites:
-                  if not isinstance(site, dict):
-                      continue
-                  alerts = site.get("alerts", [])
-                  if not isinstance(alerts, list):
-                      continue
-                  for alert in alerts:
-                      if not isinstance(alert, dict):
-                          continue
+                  if not isinstance(site, dict): continue
+                  for alert in site.get("alerts", []) or []:
+                      if not isinstance(alert, dict): continue
                       rc    = str(alert.get("riskcode","0"))
                       name  = str(alert.get("name",""))
                       cweid = str(alert.get("cweid","")).strip()
                       desc  = str(alert.get("desc","")).replace("<p>","").replace("</p>","").strip()[:120]
                       insts = alert.get("instances",[])
-                      uri   = ""
-                      if isinstance(insts, list) and insts and isinstance(insts[0], dict):
-                          uri = insts[0].get("uri","")
-
+                      uri   = insts[0].get("uri","") if isinstance(insts,list) and insts and isinstance(insts[0],dict) else ""
                       if rc == "3":
                           zap_high += 1
                           zap_findings.append({
@@ -818,175 +771,255 @@ jobs:
                           })
                       elif rc == "2":
                           zap_med += 1
-
           print(f"[OK] ZAP: {zap_high} high, {zap_med} medium")
 
-          # ══════════════════════════════════════
-          # TRIVY
-          # ══════════════════════════════════════
+          # ── TRIVY ────────────────────────────────────────────────────
           trivy_crit = trivy_high = trivy_med = 0
           trivy_findings = []
+          seen = set()
 
           for pattern, src in [
-              ("reports/trivy/trivy-sca.json", "SCA"),
-              ("reports/trivy/trivy-image.json", "IMAGE"),
-              ("reports/trivy/**/trivy-sca.json", "SCA"),
-              ("reports/trivy/**/trivy-image.json", "IMAGE")
+              ("reports/trivy/trivy-sca.json","SCA"),
+              ("reports/trivy/trivy-image.json","IMAGE"),
+              ("reports/trivy/**/trivy-sca.json","SCA"),
+              ("reports/trivy/**/trivy-image.json","IMAGE")
           ]:
               td = safe_load(pattern)
-              if not isinstance(td, dict):
-                  continue
-              for res in td.get("Results", []) or []:
-                  if not isinstance(res, dict):
-                      continue
-                  for v in res.get("Vulnerabilities", []) or []:
-                      if not isinstance(v, dict):
-                          continue
+              if not isinstance(td, dict): continue
+              for res in td.get("Results",[]) or []:
+                  if not isinstance(res, dict): continue
+                  for v in res.get("Vulnerabilities",[]) or []:
+                      if not isinstance(v, dict): continue
                       sev = v.get("Severity","")
                       vid = v.get("VulnerabilityID","")
+                      key = f"{vid}_{v.get('PkgName','')}_{src}"
+                      if key in seen: continue
+                      seen.add(key)
                       entry = {
-                          "tool":f"Trivy ({src})", "severity":sev,
-                          "id":vid, "pkg":v.get("PkgName",""),
+                          "tool":f"Trivy/{src}","severity":sev,
+                          "id":vid,"pkg":v.get("PkgName",""),
                           "file":v.get("InstalledVersion",""),
                           "desc":str(v.get("Title",""))[:120],
                           "link":cve_link(vid)
                       }
-                      if sev == "CRITICAL":
-                          trivy_crit += 1; trivy_findings.append(entry)
-                      elif sev == "HIGH":
-                          trivy_high += 1; trivy_findings.append(entry)
-                      elif sev == "MEDIUM":
-                          trivy_med += 1
-
-          # Déduplique trivy (on cherche dans 2 patterns)
-          seen = set()
-          unique_trivy = []
-          for f in trivy_findings:
-              key = f"{f['id']}_{f['pkg']}_{f['tool']}"
-              if key not in seen:
-                  seen.add(key)
-                  unique_trivy.append(f)
-          trivy_findings = unique_trivy
-          trivy_crit = len([f for f in trivy_findings if f["severity"]=="CRITICAL"])
-          trivy_high = len([f for f in trivy_findings if f["severity"]=="HIGH"])
+                      if sev == "CRITICAL":   trivy_crit += 1; trivy_findings.append(entry)
+                      elif sev == "HIGH":     trivy_high += 1; trivy_findings.append(entry)
+                      elif sev == "MEDIUM":   trivy_med += 1
 
           print(f"[OK] Trivy: {trivy_crit} critical, {trivy_high} high, {trivy_med} medium")
 
-          # ══════════════════════════════════════
-          # TOTAUX
-          # ══════════════════════════════════════
+          # ── TOTAUX ───────────────────────────────────────────────────
           sem_total   = len(sem_results)
           zap_total   = zap_high + zap_med
           trivy_total = trivy_crit + trivy_high + trivy_med
           grand_total = sem_total + zap_total + trivy_total
           grand_crit  = trivy_crit
           grand_high  = len(sem_high) + zap_high + trivy_high
-          grand_med   = len(sem_med) + zap_med + trivy_med
+          grand_med   = len(sem_med)  + zap_med  + trivy_med
 
           all_findings = sem_findings + zap_findings + trivy_findings
           all_findings.sort(key=lambda x: 0 if x["severity"]=="CRITICAL" else 1)
 
-          # ══════════════════════════════════════
-          # HTML
-          # ══════════════════════════════════════
+          # ── ROWS TABLEAU FINDINGS ────────────────────────────────────
+          sev_color = {"CRITICAL":"#ef4444","HIGH":"#f97316","MEDIUM":"#eab308"}
+          tool_color = {"Semgrep":"#a78bfa","ZAP":"#22d3ee","Trivy/SCA":"#4ade80","Trivy/IMAGE":"#60a5fa"}
+
           rows = ""
           for i, f in enumerate(all_findings):
-              link_cell = f'<a href="{f["link"]}" target="_blank" style="color:#60a5fa">🔗</a>' if f.get("link") else "—"
-              desc_safe = str(f.get("desc","")).replace("<","&lt;").replace(">","&gt;")
-              rows += f"""<tr style="border-top:1px solid #0f172a">
-                <td style="padding:8px 10px;color:#64748b">{i+1}</td>
-                <td style="padding:8px 10px"><code style="background:#0f172a;padding:2px 6px;border-radius:3px;color:#7dd3fc;font-size:10px">{f["tool"]}</code></td>
-                <td style="padding:8px 10px">{badge(f["severity"])}</td>
-                <td style="padding:8px 10px;color:#f8fafc;font-size:11px">{str(f["id"])[:40]}</td>
-                <td style="padding:8px 10px;color:#94a3b8;font-size:11px">{str(f["pkg"])[:35]}</td>
-                <td style="padding:8px 10px;color:#94a3b8;font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{desc_safe}</td>
-                <td style="padding:8px 10px">{link_cell}</td>
+              sc   = sev_color.get(f["severity"],"#94a3b8")
+              tc   = tool_color.get(f["tool"],"#94a3b8")
+              link = f'<a href="{f["link"]}" target="_blank" style="color:#60a5fa;text-decoration:none">&#128279;</a>' if f.get("link") else "—"
+              detail_id = f"d{i}"
+              file_short = f["file"].split("/")[-1] if "/" in f["file"] else f["file"]
+              rows += f"""<tr class="main-row" onclick="toggle('{detail_id}')">
+                <td><button class="ebtn" id="btn-{detail_id}">&#9658;</button></td>
+                <td style="color:#475569;font-size:11px">{i+1}</td>
+                <td><span style="background:{tc}22;color:{tc};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:500">{f['tool']}</span></td>
+                <td><span style="background:{sc}22;color:{sc};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:500">{f['severity']}</span></td>
+                <td style="color:#f1f5f9;font-size:12px;max-width:200px">{f['pkg'][:45]}</td>
+                <td><code style="background:#0f172a;padding:2px 5px;border-radius:3px;font-size:10px;color:#7dd3fc">{f['id'][:35]}</code></td>
+                <td style="color:#64748b;font-size:11px">{file_short[:40]}</td>
+                <td style="text-align:center">{link}</td>
+              </tr>
+              <tr id="{detail_id}" style="display:none">
+                <td colspan="8">
+                  <div style="padding:14px 18px;background:#0d1b2e;border-bottom:1px solid #334155">
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:12px">
+                      <div>
+                        <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Outil</div>
+                        <div><span style="background:{tc}22;color:{tc};padding:2px 8px;border-radius:10px;font-size:11px">{f['tool']}</span></div>
+                      </div>
+                      <div>
+                        <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Identifiant</div>
+                        <div><code style="background:#0f172a;padding:2px 5px;border-radius:3px;font-size:11px;color:#7dd3fc">{f['id']}</code></div>
+                      </div>
+                      <div>
+                        <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Composant</div>
+                        <div style="color:#cbd5e1;font-size:12px">{f['pkg']}</div>
+                      </div>
+                    </div>
+                    <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Localisation / URL</div>
+                    <div style="background:#0f172a;border:1px solid #334155;padding:7px 12px;border-radius:6px;font-family:monospace;font-size:11px;color:#4ade80;margin-bottom:10px">{f['file']}</div>
+                    <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Description</div>
+                    <div style="background:#1e293b;border-left:3px solid {sc};padding:9px 13px;border-radius:0 6px 6px 0;font-size:12px;color:#94a3b8;line-height:1.6">{f['desc']}</div>
+                  </div>
+                </td>
               </tr>"""
 
-          html = f"""<!DOCTYPE html><html lang="en"><head>
-          <meta charset="UTF-8"><title>Security Dashboard — ShopVuln</title>
+          # ── HTML ─────────────────────────────────────────────────────
+          def bar(val, total, color):
+              pct = int((val/total)*100) if total > 0 else 0
+              return f'<div style="height:4px;background:#0f172a;border-radius:2px;margin-top:6px"><div style="height:4px;width:{pct}%;background:{color};border-radius:2px"></div></div>'
+
+          def gate(ok):
+              return '<span style="color:#22c55e;font-weight:600">✓ PASSED</span>' if ok else '<span style="color:#ef4444;font-weight:600">✗ FAILED</span>'
+
+          html = f"""<!DOCTYPE html><html lang="fr"><head>
+          <meta charset="UTF-8"><title>Security Dashboard - ShopVuln</title>
           <style>
           *{{margin:0;padding:0;box-sizing:border-box}}
-          body{{font-family:Segoe UI,sans-serif;background:#0f172a;color:#e2e8f0;padding:28px}}
-          h1{{font-size:22px;font-weight:600}}
-          .sub{{color:#64748b;font-size:13px;margin:4px 0 24px}}
-          .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}}
-          .stat{{background:#1e293b;border-radius:10px;padding:16px;border:1px solid #334155;text-align:center}}
-          .stat .n{{font-size:34px;font-weight:600}}
-          .stat .l{{font-size:11px;color:#64748b;text-transform:uppercase}}
-          .tools{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:28px}}
-          .tool{{background:#1e293b;border-radius:10px;padding:16px;border:1px solid #334155}}
-          .tool h3{{font-size:13px;margin-bottom:3px}}
-          .tool .meta{{font-size:11px;color:#64748b;margin-bottom:10px}}
-          .row{{display:flex;justify-content:space-between;margin-top:6px}}
-          .row span{{font-size:12px;color:#94a3b8}}
-          h2{{font-size:15px;font-weight:500;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #334155}}
-          table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden;border:1px solid #334155;font-size:12px;margin-bottom:28px}}
-          th{{background:#0f172a;padding:9px 10px;font-size:10px;color:#64748b;text-align:left;text-transform:uppercase}}
-          footer{{text-align:center;color:#334155;font-size:11px;margin-top:16px;padding-top:16px;border-top:1px solid #1e293b}}
+          body{{font-family:Segoe UI,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px;min-height:100vh}}
+          h1{{font-size:20px;font-weight:500;color:#f1f5f9}}
+          .sub{{color:#64748b;font-size:12px;margin:4px 0 22px}}
+          .kpis{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px}}
+          .kpi{{background:#1e293b;border-radius:10px;padding:16px;text-align:center;border:1px solid #334155}}
+          .kpi .n{{font-size:32px;font-weight:500;line-height:1}}
+          .kpi .l{{font-size:10px;color:#64748b;margin-top:5px;text-transform:uppercase;letter-spacing:.05em}}
+          .tools{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:22px}}
+          .tool-card{{background:#1e293b;border-radius:10px;padding:16px;border:1px solid #334155}}
+          .tool-card h3{{font-size:13px;font-weight:500;margin-bottom:3px;color:#f1f5f9}}
+          .tool-card .meta{{font-size:11px;color:#64748b;margin-bottom:12px}}
+          .row-stat{{display:flex;justify-content:space-between;margin-top:7px;align-items:center}}
+          .row-stat span{{font-size:11px;color:#94a3b8}}
+          .section-title{{font-size:13px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #1e293b}}
+          .table-wrap{{border:1px solid #334155;border-radius:10px;overflow:hidden;margin-bottom:22px}}
+          table{{width:100%;border-collapse:collapse;font-size:12px}}
+          thead th{{background:#0f172a;padding:9px 10px;font-size:10px;color:#64748b;text-align:left;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #334155}}
+          .main-row{{border-top:1px solid #1e293b;cursor:pointer;transition:background .1s}}
+          .main-row:hover{{background:#1e293b}}
+          td{{padding:9px 10px;vertical-align:middle}}
+          .ebtn{{background:none;border:none;color:#475569;cursor:pointer;font-size:12px;padding:2px 5px;border-radius:3px}}
+          .filters{{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}}
+          .filters select,.filters input{{background:#1e293b;border:1px solid #334155;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:12px;outline:none}}
+          .filters input{{flex:1;min-width:160px}}
+          footer{{text-align:center;color:#334155;font-size:11px;margin-top:20px;padding-top:14px;border-top:1px solid #1e293b}}
           </style></head><body>
 
-          <h1>🛡️ Security Dashboard — ShopVuln</h1>
-          <div class="sub">DevSecOps Pipeline · {datetime.now().strftime('%d/%m/%Y %H:%M')} · {grand_total} findings</div>
+          <h1>&#x1F6E1; Security Dashboard &mdash; ShopVuln</h1>
+          <div class="sub">DevSecOps PFE &middot; {datetime.now().strftime('%d/%m/%Y %H:%M')} &middot; {grand_total} findings</div>
 
-          <div class="stats">
-            <div class="stat"><div class="n" style="color:#60a5fa">{grand_total}</div><div class="l">Total</div></div>
-            <div class="stat"><div class="n" style="color:#ef4444">{grand_crit}</div><div class="l">Critical</div></div>
-            <div class="stat"><div class="n" style="color:#f97316">{grand_high}</div><div class="l">High</div></div>
-            <div class="stat"><div class="n" style="color:#eab308">{grand_med}</div><div class="l">Medium</div></div>
+          <div class="kpis">
+            <div class="kpi"><div class="n" style="color:#60a5fa">{grand_total}</div><div class="l">Total</div></div>
+            <div class="kpi"><div class="n" style="color:#ef4444">{grand_crit}</div><div class="l">Critical</div></div>
+            <div class="kpi"><div class="n" style="color:#f97316">{grand_high}</div><div class="l">High</div></div>
+            <div class="kpi"><div class="n" style="color:#eab308">{grand_med}</div><div class="l">Medium</div></div>
           </div>
 
           <div class="tools">
-            <div class="tool">
-              <h3>SAST — Semgrep</h3>
-              <div class="meta">{sem_total} findings · Python/Flask</div>
-              <div class="row"><span>High</span><b style="color:#f97316">{len(sem_high)}</b></div>
+            <div class="tool-card">
+              <h3>&#x1F50D; SAST &mdash; Semgrep</h3>
+              <div class="meta">{sem_total} findings &middot; Python / Flask</div>
+              <div class="row-stat"><span>High (ERROR)</span><b style="color:#f97316">{len(sem_high)}</b></div>
               {bar(len(sem_high), sem_total or 1, '#f97316')}
-              <div class="row"><span>Medium</span><b style="color:#eab308">{len(sem_med)}</b></div>
+              <div class="row-stat"><span>Medium (WARNING)</span><b style="color:#eab308">{len(sem_med)}</b></div>
               {bar(len(sem_med), sem_total or 1, '#eab308')}
             </div>
-            <div class="tool">
-              <h3>DAST — OWASP ZAP</h3>
-              <div class="meta">{zap_total} alerts · live app</div>
-              <div class="row"><span>High</span><b style="color:#f97316">{zap_high}</b></div>
+            <div class="tool-card">
+              <h3>&#x1F578; DAST &mdash; OWASP ZAP</h3>
+              <div class="meta">{zap_total} alerts &middot; Full Scan</div>
+              <div class="row-stat"><span>High (Risk 3)</span><b style="color:#f97316">{zap_high}</b></div>
               {bar(zap_high, zap_total or 1, '#f97316')}
-              <div class="row"><span>Medium</span><b style="color:#eab308">{zap_med}</b></div>
+              <div class="row-stat"><span>Medium (Risk 2)</span><b style="color:#eab308">{zap_med}</b></div>
               {bar(zap_med, zap_total or 1, '#eab308')}
             </div>
-            <div class="tool">
-              <h3>SCA + Image — Trivy</h3>
-              <div class="meta">{trivy_total} CVE · deps + Docker</div>
-              <div class="row"><span>Critical</span><b style="color:#ef4444">{trivy_crit}</b></div>
+            <div class="tool-card">
+              <h3>&#x1F4E6; SCA + Image &mdash; Trivy</h3>
+              <div class="meta">{trivy_total} CVE &middot; deps + Docker</div>
+              <div class="row-stat"><span>Critical</span><b style="color:#ef4444">{trivy_crit}</b></div>
               {bar(trivy_crit, trivy_total or 1, '#ef4444')}
-              <div class="row"><span>High</span><b style="color:#f97316">{trivy_high}</b></div>
+              <div class="row-stat"><span>High</span><b style="color:#f97316">{trivy_high}</b></div>
               {bar(trivy_high, trivy_total or 1, '#f97316')}
             </div>
           </div>
 
-          <h2>Summary by Tool</h2>
-          <table>
-            <tr><th>#</th><th>Tool</th><th>Type</th><th>Critical</th><th>High</th><th>Medium</th><th>Total</th><th>Status</th></tr>
-            <tr><td style="padding:10px">1</td><td>Semgrep</td><td style="color:#64748b">SAST</td><td>—</td><td style="color:#f97316"><b>{len(sem_high)}</b></td><td style="color:#eab308">{len(sem_med)}</td><td>{sem_total}</td><td>{status(len(sem_high)<=10)}</td></tr>
-            <tr><td style="padding:10px">2</td><td>ZAP</td><td style="color:#64748b">DAST</td><td>—</td><td style="color:#f97316"><b>{zap_high}</b></td><td style="color:#eab308">{zap_med}</td><td>{zap_total}</td><td>{status(zap_high<=5)}</td></tr>
-            <tr><td style="padding:10px">3</td><td>Trivy</td><td style="color:#64748b">SCA</td><td style="color:#ef4444"><b>{trivy_crit}</b></td><td style="color:#f97316">{trivy_high}</td><td style="color:#eab308">{trivy_med}</td><td>{trivy_total}</td><td>{status(trivy_crit==0)}</td></tr>
-          </table>
+          <div class="section-title">Synthèse par outil</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>#</th><th>Outil</th><th>Type</th><th>Critical</th><th>High</th><th>Medium</th><th>Total</th><th>Security Gate</th></tr></thead>
+              <tbody>
+                <tr style="border-top:1px solid #1e293b">
+                  <td style="color:#475569">1</td><td style="color:#a78bfa">Semgrep</td><td style="color:#64748b">SAST</td>
+                  <td style="color:#64748b">—</td><td style="color:#f97316"><b>{len(sem_high)}</b></td><td style="color:#eab308">{len(sem_med)}</td><td>{sem_total}</td>
+                  <td>{gate(len(sem_high) <= 10)}</td>
+                </tr>
+                <tr style="border-top:1px solid #1e293b;background:#0f172a22">
+                  <td style="color:#475569">2</td><td style="color:#22d3ee">ZAP</td><td style="color:#64748b">DAST</td>
+                  <td style="color:#64748b">—</td><td style="color:#f97316"><b>{zap_high}</b></td><td style="color:#eab308">{zap_med}</td><td>{zap_total}</td>
+                  <td>{gate(zap_high <= 5)}</td>
+                </tr>
+                <tr style="border-top:1px solid #1e293b">
+                  <td style="color:#475569">3</td><td style="color:#4ade80">Trivy SCA</td><td style="color:#64748b">SCA</td>
+                  <td style="color:#ef4444"><b>{trivy_crit}</b></td><td style="color:#f97316">{trivy_high}</td><td style="color:#eab308">{trivy_med}</td><td>{trivy_total}</td>
+                  <td>{gate(trivy_crit == 0)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
-          <h2>Critical & High Findings ({len(all_findings)})</h2>
-          <table>
-            <thead><tr><th>#</th><th>Tool</th><th>Severity</th><th>ID / CVE</th><th>Component</th><th>Description</th><th>Ref</th></tr></thead>
-            <tbody>
-            {rows if rows else '<tr><td colspan="7" style="padding:20px;text-align:center;color:#64748b">No critical/high findings</td></tr>'}
-            </tbody>
-          </table>
+          <div class="section-title">Critical &amp; High Findings ({len(all_findings)})</div>
+          <div class="filters">
+            <select id="f-tool" onchange="filter()">
+              <option value="">Tous les outils</option>
+              <option value="Semgrep">Semgrep</option>
+              <option value="ZAP">ZAP</option>
+              <option value="Trivy/SCA">Trivy/SCA</option>
+              <option value="Trivy/IMAGE">Trivy/IMAGE</option>
+            </select>
+            <select id="f-sev" onchange="filter()">
+              <option value="">Toutes sévérités</option>
+              <option value="CRITICAL">CRITICAL</option>
+              <option value="HIGH">HIGH</option>
+            </select>
+            <input id="f-q" placeholder="Rechercher (CVE, package, fichier...)" oninput="filter()">
+          </div>
+          <div class="table-wrap">
+            <table id="t">
+              <thead><tr><th style="width:30px"></th><th style="width:30px">#</th><th>Outil</th><th>Sévérité</th><th>Composant</th><th>ID / CVE</th><th>Localisation</th><th style="width:40px">Ref</th></tr></thead>
+              <tbody>{rows}</tbody>
+            </table>
+          </div>
 
-          <footer>ShopVuln · DevSecOps PFE · {datetime.now().strftime('%Y')}</footer>
+          <footer>ShopVuln &middot; DevSecOps PFE &middot; {datetime.now().strftime('%Y')}</footer>
+
+          <script>
+          function toggle(id){{
+            var r=document.getElementById(id);
+            var b=document.getElementById('btn-'+id);
+            if(r.style.display==='none'){{r.style.display='';b.innerHTML='&#9660;'}}
+            else{{r.style.display='none';b.innerHTML='&#9658;'}}
+          }}
+          function filter(){{
+            var ft=document.getElementById('f-tool').value;
+            var fs=document.getElementById('f-sev').value;
+            var fq=document.getElementById('f-q').value.toLowerCase();
+            document.querySelectorAll('#t tbody tr.main-row').forEach(function(row){{
+              var tds=row.querySelectorAll('td');
+              var tool=tds[2]?tds[2].textContent.trim():'';
+              var sev=tds[3]?tds[3].textContent.trim():'';
+              var txt=row.textContent.toLowerCase();
+              var show=(!ft||tool.indexOf(ft)!==-1)&&(!fs||sev===fs)&&(!fq||txt.indexOf(fq)!==-1);
+              row.style.display=show?'':'none';
+              var det=document.getElementById(row.querySelector('.ebtn').id.replace('btn-',''));
+              if(det&&!show)det.style.display='none';
+            }});
+          }}
+          </script>
           </body></html>"""
 
-          with open("security-dashboard.html","w") as f:
+          with open("security-dashboard.html","w",encoding="utf-8") as f:
               f.write(html)
           print(f"[OK] Dashboard: {grand_total} findings, {len(all_findings)} critical/high")
           EOF
-
       - name: Upload Dashboard
         uses: actions/upload-artifact@v4
         with:
