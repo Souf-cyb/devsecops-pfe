@@ -521,6 +521,7 @@ jobs:
         run: |
           python3 << 'EOF'
           import json
+          import sys
 
           def count_crit(path):
               try:
@@ -532,16 +533,19 @@ jobs:
                           if v.get("Severity") == "CRITICAL":
                               n += 1
                   return n
-              except:
+              except Exception as e:
+                  print(f"Note: Could not read {path}")
                   return 0
 
           crit = count_crit("reports/trivy/trivy-sca.json") + count_crit("reports/trivy/trivy-image.json")
           print(f"Critical CVEs found: {crit}")
+
           if crit > 0:
               print("TRIVY SECURITY GATE FAILED — critical CVEs detected")
+              sys.exit(1)
           else:
               print("TRIVY SECURITY GATE PASSED")
-          EOF   
+          EOF
 
       - name: Generate Trivy Dashboard
         run: |
