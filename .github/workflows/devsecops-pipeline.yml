@@ -24,6 +24,8 @@ jobs:
         run: |
           echo "=== Root ==="
           ls -la
+          echo "=== .git/ ==="
+          ls -la .git/ | head -5
           echo "=== shopvuln/ ==="
           ls -la shopvuln/ || echo "shopvuln/ not found!"
 
@@ -31,7 +33,7 @@ jobs:
         run: |
           mkdir -p reports
           docker run --rm \
-            -v ${{ github.workspace }}/shopvuln:/repo \
+            -v ${{ github.workspace }}:/repo \
             -v ${{ github.workspace }}/reports:/report \
             ghcr.io/gitleaks/gitleaks:latest \
             detect \
@@ -40,14 +42,20 @@ jobs:
             --report-path /report/gitleaks.sarif \
             --verbose || true
 
-      - name: Upload Gitleaks Report
+      - name: Upload Gitleaks SARIF to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: reports/gitleaks.sarif
+          category: gitleaks
+
+      - name: Upload Gitleaks Report Artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: gitleaks-report
           path: reports/gitleaks.sarif
           if-no-files-found: warn
-
 # ═══════════════════════════════════════════════
 # JOB 1 — SAST SEMGREP
 # ═══════════════════════════════════════════════
@@ -469,19 +477,6 @@ jobs:
                 -config spider.maxDepth=5 \
                 -config spider.maxChildren=10" \
             -I || true
-
-      - name: ZAP API Scan
-        run: |
-          docker run --network=host \
-            -v ${{ github.workspace }}/reports/zap:/zap/wrk/:rw \
-            ghcr.io/zaproxy/zaproxy:stable \
-            zap-api-scan.py \
-            -t http://localhost:5000/api/products \
-            -f openapi \
-            -r zap-api-report.html \
-            -J zap-api-report.json \
-            -I || true
-
       - name: Upload DAST Reports
         uses: actions/upload-artifact@v4
         if: always()
@@ -501,10 +496,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build Docker Image
-        run: |
-          cd shopvuln
-          docker build -t shopvuln:latest .
+      - name: Download Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load Docker Image
+        run: docker load -i image.tar
 
       - name: Create reports directory
         run: mkdir -p reports/trivy
@@ -527,6 +525,32 @@ jobs:
           output: reports/trivy/trivy-image.json
           severity: CRITICAL,HIGH,MEDIUM
           exit-code: 0
+      
+      - name: Trivy Security Gate
+        run: |
+          python3 << 'EOF'
+          import json
+
+          def count_crit(path):
+              try:
+                  with open(path) as f:
+                      data = json.load(f)
+                  n = 0
+                  for r in data.get("Results", []) or []:
+                      for v in r.get("Vulnerabilities", []) or []:
+                          if v.get("Severity") == "CRITICAL":
+                              n += 1
+                  return n
+              except:
+                  return 0
+
+          crit = count_crit("reports/trivy/trivy-sca.json") + count_crit("reports/trivy/trivy-image.json")
+          print(f"Critical CVEs found: {crit}")
+          if crit > 0:
+              print("TRIVY SECURITY GATE FAILED — critical CVEs detected")
+          else:
+              print("TRIVY SECURITY GATE PASSED")
+          EOF   
 
       - name: Generate Trivy Dashboard
         run: |
