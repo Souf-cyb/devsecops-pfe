@@ -5,6 +5,10 @@ import os
 def create_app():
     app = Flask(__name__)
     app.secret_key = "shopvuln-super-secret-key-2024"
+    AWS_SECRET_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE"
+    AWS_SECRET_ACCESS_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    GITHUB_TOKEN = "ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ123456"
+    DB_PASSWORD = "admin1234"   
 
     db_path = os.path.join(os.path.dirname(__file__), 'shop.db')
 
@@ -69,6 +73,7 @@ def create_app():
             quantity INTEGER DEFAULT 1
         );
     ''')
+
 
     # Seed data
     c.execute("SELECT COUNT(*) FROM users")
