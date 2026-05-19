@@ -267,6 +267,118 @@ jobs:
             --soft-fail || true
           mv reports/results_json.json reports/checkov-report.json 2>/dev/null || true
 
+      - name: Generate Checkov HTML Report
+        run: |
+          python3 << 'EOF'
+          import json
+          from datetime import datetime
+
+          try:
+              with open("reports/checkov-report.json") as f:
+                  data = json.load(f)
+          except Exception:
+              data = {}
+
+          # Checkov peut retourner une liste ou un dict selon le nb de frameworks
+          if isinstance(data, list):
+              failed  = []
+              passed  = []
+              for entry in data:
+                  if isinstance(entry, dict):
+                      failed += entry.get("results",{}).get("failed_checks",[])  or []
+                      passed += entry.get("results",{}).get("passed_checks",[]) or []
+          else:
+              failed  = data.get("results",{}).get("failed_checks",[])  or []
+              passed  = data.get("results",{}).get("passed_checks",[]) or []
+
+          total   = len(failed) + len(passed)
+          score   = int((len(passed) / total) * 100) if total > 0 else 0
+          score_color = "#22c55e" if score >= 70 else "#eab308" if score >= 40 else "#ef4444"
+
+          rows = ""
+          for i, c in enumerate(failed):
+              check_id   = c.get("check_id","")
+              check_name = c.get("check","") or c.get("check_type","")
+              file_path  = c.get("repo_file_path","") or c.get("file_path","")
+              resource   = c.get("resource","") or c.get("check_type","")
+              guideline  = c.get("guideline","")
+              guide_html = f'<a href="{guideline}" target="_blank" style="color:#60a5fa;font-size:11px;text-decoration:none">&#128279; Doc</a>' if guideline else "—"
+              detail_id  = f"detail-{i}"
+              rows += f"""<tr class="main-row" onclick="toggle('{detail_id}')">
+                <td><button class="expand-btn" id="btn-{detail_id}">&#9658;</button></td>
+                <td><code style="background:#0f172a;padding:2px 6px;border-radius:3px;font-size:10px;color:#f97316">{check_id}</code></td>
+                <td style="color:#f1f5f9;font-size:12px">{check_name}</td>
+                <td><code style="background:#0f172a;padding:2px 5px;border-radius:3px;font-size:10px;color:#7dd3fc">{file_path.split("/")[-1]}</code></td>
+                <td style="color:#94a3b8;font-size:11px">{resource}</td>
+                <td>{guide_html}</td>
+              </tr>
+              <tr class="detail-row" id="{detail_id}" style="display:none">
+                <td colspan="6">
+                  <div style="padding:14px 18px;background:#0d1b2e;border-bottom:1px solid #334155">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
+                      <div>
+                        <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Fichier complet</div>
+                        <div><code style="background:#0f172a;padding:2px 5px;border-radius:3px;font-size:10px;color:#7dd3fc">{file_path}</code></div>
+                      </div>
+                      <div>
+                        <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Ressource</div>
+                        <div style="color:#cbd5e1;font-size:12px">{resource}</div>
+                      </div>
+                    </div>
+                    <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Check</div>
+                    <div style="background:#1e293b;border-left:3px solid #f97316;padding:9px 13px;border-radius:0 6px 6px 0;font-size:12px;color:#94a3b8;line-height:1.6">{check_name}</div>
+                    <div style="background:#0f172a;border:1px solid #334155;padding:7px 12px;border-radius:6px;font-family:monospace;font-size:11px;color:#4ade80;margin-top:8px">&gt;&gt;&gt; {file_path}</div>
+                    <div style="margin-top:8px">{guide_html}</div>
+                  </div>
+                </td>
+              </tr>"""
+
+          html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Checkov IaC - ShopVuln</title>
+          <style>*{{margin:0;padding:0;box-sizing:border-box}}body{{font-family:Segoe UI,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px}}
+          .grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0 24px}}
+          .card{{background:#1e293b;padding:16px;border-radius:10px;border:1px solid #334155;text-align:center}}
+          .num{{font-size:32px;font-weight:500}}
+          .score-bar-wrap{{background:#0f172a;border-radius:6px;height:6px;margin-top:8px;overflow:hidden}}
+          .score-bar{{height:6px;border-radius:6px;background:{score_color};width:{score}%}}
+          table{{width:100%;border-collapse:collapse;border:1px solid #334155;border-radius:10px;overflow:hidden}}
+          th{{background:#0f172a;padding:10px 12px;font-size:11px;color:#94a3b8;text-align:left}}
+          td{{padding:9px 12px;font-size:12px;border-top:1px solid #1e293b}}
+          .main-row{{cursor:pointer}}.main-row:hover{{background:#1e293b}}
+          .expand-btn{{background:none;border:none;color:#475569;cursor:pointer;font-size:13px;padding:2px 6px;border-radius:4px}}
+          footer{{text-align:center;color:#334155;font-size:11px;margin-top:20px;padding-top:14px;border-top:1px solid #1e293b}}</style>
+          </head><body>
+          <h1 style="font-size:20px">Checkov IaC Report - ShopVuln</h1>
+          <p style="color:#94a3b8;font-size:13px;margin-top:4px">{datetime.now().strftime('%d/%m/%Y %H:%M')} · Dockerfile + YAML</p>
+          <div class="grid">
+            <div class="card">
+              <div class="num" style="color:{score_color}">{score}%</div>
+              <div style="font-size:12px;color:#94a3b8">Score</div>
+              <div class="score-bar-wrap"><div class="score-bar"></div></div>
+            </div>
+            <div class="card"><div class="num" style="color:#ef4444">{len(failed)}</div><div style="font-size:12px;color:#94a3b8">Failed</div></div>
+            <div class="card"><div class="num" style="color:#22c55e">{len(passed)}</div><div style="font-size:12px;color:#94a3b8">Passed</div></div>
+            <div class="card"><div class="num" style="color:#60a5fa">{total}</div><div style="font-size:12px;color:#94a3b8">Total Checks</div></div>
+          </div>
+          <table id="t">
+            <thead><tr><th style="width:34px"></th><th>Check ID</th><th>Description</th><th>Fichier</th><th>Ressource</th><th>Doc</th></tr></thead>
+            <tbody>{rows}</tbody>
+          </table>
+          <footer>Checkov - ShopVuln DevSecOps PFE</footer>
+          <script>
+          function toggle(id){{
+            var row=document.getElementById(id);
+            var btn=document.getElementById('btn-'+id);
+            if(row.style.display==='none'){{row.style.display='';btn.innerHTML='&#9660;'}}
+            else{{row.style.display='none';btn.innerHTML='&#9658;'}}
+          }}
+          </script>
+          </body></html>"""
+
+          with open("reports/checkov-report.html","w") as f:
+              f.write(html)
+          print(f"Checkov report — {len(failed)} failed, {len(passed)} passed, score {score}%")
+          EOF
+
       - name: Upload Checkov Report
         uses: actions/upload-artifact@v4
         if: always()
@@ -274,7 +386,6 @@ jobs:
           name: checkov-report
           path: reports/
           if-no-files-found: warn
-
 # ═══════════════════════════════════════════════
 # JOB 3 — BUILD DOCKER IMAGE
 # ═══════════════════════════════════════════════
