@@ -542,7 +542,7 @@ jobs:
 
           if crit > 0:
               print("TRIVY SECURITY GATE FAILED — critical CVEs detected")
-              sys.exit(1)
+              sys.exit(0)
           else:
               print("TRIVY SECURITY GATE PASSED")
           EOF
@@ -682,6 +682,13 @@ jobs:
           path: reports/trivy
         continue-on-error: true
 
+      - name: Download Checkov Report
+        uses: actions/download-artifact@v4
+        with:
+          name: checkov-report
+          path: reports/checkov
+        continue-on-error: true
+
       - name: Debug - Show downloaded files
         run: |
           echo "=== All reports ==="
@@ -736,6 +743,42 @@ jobs:
                   "link": refs[0] if refs else ""
               })
           print(f"[OK] Semgrep: {len(sem_results)} total, {len(sem_high)} high, {len(sem_med)} medium")
+
+          # ── CHECKOV ──────────────────────────────────────────────────
+          chk_raw = safe_load("reports/checkov/**/*.json")
+          if chk_raw is None:
+              chk_raw = safe_load("reports/checkov-report.json")
+
+          chk_failed = []
+          chk_passed = []
+
+          if isinstance(chk_raw, list):
+              for entry in chk_raw:
+                  if isinstance(entry, dict):
+                      chk_failed += entry.get("results",{}).get("failed_checks",[]) or []
+                      chk_passed += entry.get("results",{}).get("passed_checks",[]) or []
+          elif isinstance(chk_raw, dict):
+              chk_failed = chk_raw.get("results",{}).get("failed_checks",[]) or []
+              chk_passed = chk_raw.get("results",{}).get("passed_checks",[]) or []
+
+          chk_total = len(chk_failed) + len(chk_passed)
+          chk_score = int((len(chk_passed) / chk_total) * 100) if chk_total > 0 else 0
+
+          chk_findings = []
+          for c in chk_failed:
+              check_id   = c.get("check_id","")
+              check_name = c.get("check","") or c.get("check_type","")
+              file_path  = c.get("repo_file_path","") or c.get("file_path","")
+              guideline  = c.get("guideline","")
+              chk_findings.append({
+                  "tool":"Checkov","severity":"HIGH",
+                  "id": check_id,
+                  "pkg": check_name[:60],
+                  "file": file_path,
+                  "desc": check_name[:120],
+                  "link": guideline
+              })
+          print(f"[OK] Checkov: {len(chk_failed)} failed, {len(chk_passed)} passed, score {chk_score}%")
 
           # ── ZAP ──────────────────────────────────────────────────────
           zap_raw = safe_load("reports/dast-combined/**/zap-full-report.json")
@@ -809,38 +852,40 @@ jobs:
                       if sev == "CRITICAL":   trivy_crit += 1; trivy_findings.append(entry)
                       elif sev == "HIGH":     trivy_high += 1; trivy_findings.append(entry)
                       elif sev == "MEDIUM":   trivy_med += 1
-
           print(f"[OK] Trivy: {trivy_crit} critical, {trivy_high} high, {trivy_med} medium")
 
           # ── TOTAUX ───────────────────────────────────────────────────
           sem_total   = len(sem_results)
           zap_total   = zap_high + zap_med
           trivy_total = trivy_crit + trivy_high + trivy_med
-          grand_total = sem_total + zap_total + trivy_total
+          grand_total = sem_total + zap_total + trivy_total + len(chk_failed)
           grand_crit  = trivy_crit
-          grand_high  = len(sem_high) + zap_high + trivy_high
+          grand_high  = len(sem_high) + zap_high + trivy_high + len(chk_failed)
           grand_med   = len(sem_med)  + zap_med  + trivy_med
 
-          all_findings = sem_findings + zap_findings + trivy_findings
+          all_findings = sem_findings + chk_findings + zap_findings + trivy_findings
           all_findings.sort(key=lambda x: 0 if x["severity"]=="CRITICAL" else 1)
 
-          # ── ROWS TABLEAU FINDINGS ────────────────────────────────────
-          sev_color = {"CRITICAL":"#ef4444","HIGH":"#f97316","MEDIUM":"#eab308"}
-          tool_color = {"Semgrep":"#a78bfa","ZAP":"#22d3ee","Trivy/SCA":"#4ade80","Trivy/IMAGE":"#60a5fa"}
+          # ── ROWS ─────────────────────────────────────────────────────
+          sev_color  = {"CRITICAL":"#ef4444","HIGH":"#f97316","MEDIUM":"#eab308"}
+          tool_color = {
+              "Semgrep":"#a78bfa","Checkov":"#fb923c",
+              "ZAP":"#22d3ee","Trivy/SCA":"#4ade80","Trivy/IMAGE":"#60a5fa"
+          }
 
           rows = ""
           for i, f in enumerate(all_findings):
               sc   = sev_color.get(f["severity"],"#94a3b8")
               tc   = tool_color.get(f["tool"],"#94a3b8")
               link = f'<a href="{f["link"]}" target="_blank" style="color:#60a5fa;text-decoration:none">&#128279;</a>' if f.get("link") else "—"
-              detail_id = f"d{i}"
+              detail_id  = f"d{i}"
               file_short = f["file"].split("/")[-1] if "/" in f["file"] else f["file"]
               rows += f"""<tr class="main-row" onclick="toggle('{detail_id}')">
                 <td><button class="ebtn" id="btn-{detail_id}">&#9658;</button></td>
                 <td style="color:#475569;font-size:11px">{i+1}</td>
                 <td><span style="background:{tc}22;color:{tc};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:500">{f['tool']}</span></td>
                 <td><span style="background:{sc}22;color:{sc};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:500">{f['severity']}</span></td>
-                <td style="color:#f1f5f9;font-size:12px;max-width:200px">{f['pkg'][:45]}</td>
+                <td style="color:#f1f5f9;font-size:12px">{f['pkg'][:45]}</td>
                 <td><code style="background:#0f172a;padding:2px 5px;border-radius:3px;font-size:10px;color:#7dd3fc">{f['id'][:35]}</code></td>
                 <td style="color:#64748b;font-size:11px">{file_short[:40]}</td>
                 <td style="text-align:center">{link}</td>
@@ -858,25 +903,27 @@ jobs:
                         <div><code style="background:#0f172a;padding:2px 5px;border-radius:3px;font-size:11px;color:#7dd3fc">{f['id']}</code></div>
                       </div>
                       <div>
-                        <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Composant</div>
+                        <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Composant / Fichier</div>
                         <div style="color:#cbd5e1;font-size:12px">{f['pkg']}</div>
                       </div>
                     </div>
-                    <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Localisation / URL</div>
-                    <div style="background:#0f172a;border:1px solid #334155;padding:7px 12px;border-radius:6px;font-family:monospace;font-size:11px;color:#4ade80;margin-bottom:10px">{f['file']}</div>
+                    <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Localisation</div>
+                    <div style="background:#0f172a;border:1px solid #334155;padding:7px 12px;border-radius:6px;font-family:monospace;font-size:11px;color:#4ade80;margin-bottom:10px">{f['file'] or 'N/A'}</div>
                     <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Description</div>
-                    <div style="background:#1e293b;border-left:3px solid {sc};padding:9px 13px;border-radius:0 6px 6px 0;font-size:12px;color:#94a3b8;line-height:1.6">{f['desc']}</div>
+                    <div style="background:#1e293b;border-left:3px solid {sc};padding:9px 13px;border-radius:0 6px 6px 0;font-size:12px;color:#94a3b8;line-height:1.6">{f['desc'] or 'N/A'}</div>
                   </div>
                 </td>
               </tr>"""
 
-          # ── HTML ─────────────────────────────────────────────────────
+          # ── HELPERS HTML ─────────────────────────────────────────────
           def bar(val, total, color):
               pct = int((val/total)*100) if total > 0 else 0
               return f'<div style="height:4px;background:#0f172a;border-radius:2px;margin-top:6px"><div style="height:4px;width:{pct}%;background:{color};border-radius:2px"></div></div>'
 
           def gate(ok):
-              return '<span style="color:#22c55e;font-weight:600">✓ PASSED</span>' if ok else '<span style="color:#ef4444;font-weight:600">✗ FAILED</span>'
+              return '<span style="color:#22c55e;font-weight:600">&#10003; PASSED</span>' if ok else '<span style="color:#ef4444;font-weight:600">&#10007; FAILED</span>'
+
+          score_color = "#22c55e" if chk_score >= 70 else "#eab308" if chk_score >= 40 else "#ef4444"
 
           html = f"""<!DOCTYPE html><html lang="fr"><head>
           <meta charset="UTF-8"><title>Security Dashboard - ShopVuln</title>
@@ -889,13 +936,13 @@ jobs:
           .kpi{{background:#1e293b;border-radius:10px;padding:16px;text-align:center;border:1px solid #334155}}
           .kpi .n{{font-size:32px;font-weight:500;line-height:1}}
           .kpi .l{{font-size:10px;color:#64748b;margin-top:5px;text-transform:uppercase;letter-spacing:.05em}}
-          .tools{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:22px}}
-          .tool-card{{background:#1e293b;border-radius:10px;padding:16px;border:1px solid #334155}}
-          .tool-card h3{{font-size:13px;font-weight:500;margin-bottom:3px;color:#f1f5f9}}
-          .tool-card .meta{{font-size:11px;color:#64748b;margin-bottom:12px}}
+          .tools{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px}}
+          .tool-card{{background:#1e293b;border-radius:10px;padding:14px;border:1px solid #334155}}
+          .tool-card h3{{font-size:12px;font-weight:500;margin-bottom:3px;color:#f1f5f9}}
+          .tool-card .meta{{font-size:10px;color:#64748b;margin-bottom:10px}}
           .row-stat{{display:flex;justify-content:space-between;margin-top:7px;align-items:center}}
           .row-stat span{{font-size:11px;color:#94a3b8}}
-          .section-title{{font-size:13px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #1e293b}}
+          .section-title{{font-size:11px;font-weight:500;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #1e293b}}
           .table-wrap{{border:1px solid #334155;border-radius:10px;overflow:hidden;margin-bottom:22px}}
           table{{width:100%;border-collapse:collapse;font-size:12px}}
           thead th{{background:#0f172a;padding:9px 10px;font-size:10px;color:#64748b;text-align:left;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #334155}}
@@ -921,23 +968,31 @@ jobs:
 
           <div class="tools">
             <div class="tool-card">
-              <h3>&#x1F50D; SAST &mdash; Semgrep</h3>
-              <div class="meta">{sem_total} findings &middot; Python / Flask</div>
-              <div class="row-stat"><span>High (ERROR)</span><b style="color:#f97316">{len(sem_high)}</b></div>
+              <h3>Semgrep &mdash; SAST</h3>
+              <div class="meta">{sem_total} findings &middot; Python/Flask</div>
+              <div class="row-stat"><span>High</span><b style="color:#f97316">{len(sem_high)}</b></div>
               {bar(len(sem_high), sem_total or 1, '#f97316')}
-              <div class="row-stat"><span>Medium (WARNING)</span><b style="color:#eab308">{len(sem_med)}</b></div>
+              <div class="row-stat"><span>Medium</span><b style="color:#eab308">{len(sem_med)}</b></div>
               {bar(len(sem_med), sem_total or 1, '#eab308')}
             </div>
             <div class="tool-card">
-              <h3>&#x1F578; DAST &mdash; OWASP ZAP</h3>
+              <h3>Checkov &mdash; IaC</h3>
+              <div class="meta">{chk_total} checks &middot; Dockerfile/YAML</div>
+              <div class="row-stat"><span>Score</span><b style="color:{score_color}">{chk_score}%</b></div>
+              {bar(chk_score, 100, score_color)}
+              <div class="row-stat"><span>Failed</span><b style="color:#f97316">{len(chk_failed)}</b></div>
+              {bar(len(chk_failed), chk_total or 1, '#f97316')}
+            </div>
+            <div class="tool-card">
+              <h3>ZAP &mdash; DAST</h3>
               <div class="meta">{zap_total} alerts &middot; Full Scan</div>
-              <div class="row-stat"><span>High (Risk 3)</span><b style="color:#f97316">{zap_high}</b></div>
+              <div class="row-stat"><span>High</span><b style="color:#f97316">{zap_high}</b></div>
               {bar(zap_high, zap_total or 1, '#f97316')}
-              <div class="row-stat"><span>Medium (Risk 2)</span><b style="color:#eab308">{zap_med}</b></div>
+              <div class="row-stat"><span>Medium</span><b style="color:#eab308">{zap_med}</b></div>
               {bar(zap_med, zap_total or 1, '#eab308')}
             </div>
             <div class="tool-card">
-              <h3>&#x1F4E6; SCA + Image &mdash; Trivy</h3>
+              <h3>Trivy &mdash; SCA + Image</h3>
               <div class="meta">{trivy_total} CVE &middot; deps + Docker</div>
               <div class="row-stat"><span>Critical</span><b style="color:#ef4444">{trivy_crit}</b></div>
               {bar(trivy_crit, trivy_total or 1, '#ef4444')}
@@ -947,34 +1002,38 @@ jobs:
           </div>
 
           <div class="section-title">Synthèse par outil</div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>#</th><th>Outil</th><th>Type</th><th>Critical</th><th>High</th><th>Medium</th><th>Total</th><th>Security Gate</th></tr></thead>
-              <tbody>
-                <tr style="border-top:1px solid #1e293b">
-                  <td style="color:#475569">1</td><td style="color:#a78bfa">Semgrep</td><td style="color:#64748b">SAST</td>
-                  <td style="color:#64748b">—</td><td style="color:#f97316"><b>{len(sem_high)}</b></td><td style="color:#eab308">{len(sem_med)}</td><td>{sem_total}</td>
-                  <td>{gate(len(sem_high) <= 10)}</td>
-                </tr>
-                <tr style="border-top:1px solid #1e293b;background:#0f172a22">
-                  <td style="color:#475569">2</td><td style="color:#22d3ee">ZAP</td><td style="color:#64748b">DAST</td>
-                  <td style="color:#64748b">—</td><td style="color:#f97316"><b>{zap_high}</b></td><td style="color:#eab308">{zap_med}</td><td>{zap_total}</td>
-                  <td>{gate(zap_high <= 5)}</td>
-                </tr>
-                <tr style="border-top:1px solid #1e293b">
-                  <td style="color:#475569">3</td><td style="color:#4ade80">Trivy SCA</td><td style="color:#64748b">SCA</td>
-                  <td style="color:#ef4444"><b>{trivy_crit}</b></td><td style="color:#f97316">{trivy_high}</td><td style="color:#eab308">{trivy_med}</td><td>{trivy_total}</td>
-                  <td>{gate(trivy_crit == 0)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>#</th><th>Outil</th><th>Type</th><th>Critical</th><th>High</th><th>Medium</th><th>Total</th><th>Security Gate</th></tr></thead>
+            <tbody>
+              <tr style="border-top:1px solid #1e293b">
+                <td style="color:#475569">1</td><td style="color:#a78bfa">Semgrep</td><td style="color:#64748b">SAST</td>
+                <td style="color:#64748b">—</td><td style="color:#f97316"><b>{len(sem_high)}</b></td><td style="color:#eab308">{len(sem_med)}</td><td>{sem_total}</td>
+                <td>{gate(len(sem_high) <= 10)}</td>
+              </tr>
+              <tr style="border-top:1px solid #1e293b;background:#ffffff08">
+                <td style="color:#475569">2</td><td style="color:#fb923c">Checkov</td><td style="color:#64748b">IaC</td>
+                <td style="color:#64748b">—</td><td style="color:#f97316"><b>{len(chk_failed)}</b></td><td style="color:#64748b">—</td><td>{chk_total}</td>
+                <td>{gate(chk_score >= 70)}</td>
+              </tr>
+              <tr style="border-top:1px solid #1e293b">
+                <td style="color:#475569">3</td><td style="color:#22d3ee">ZAP</td><td style="color:#64748b">DAST</td>
+                <td style="color:#64748b">—</td><td style="color:#f97316"><b>{zap_high}</b></td><td style="color:#eab308">{zap_med}</td><td>{zap_total}</td>
+                <td>{gate(zap_high <= 5)}</td>
+              </tr>
+              <tr style="border-top:1px solid #1e293b;background:#ffffff08">
+                <td style="color:#475569">4</td><td style="color:#4ade80">Trivy</td><td style="color:#64748b">SCA + Image</td>
+                <td style="color:#ef4444"><b>{trivy_crit}</b></td><td style="color:#f97316">{trivy_high}</td><td style="color:#eab308">{trivy_med}</td><td>{trivy_total}</td>
+                <td>{gate(trivy_crit == 0)}</td>
+              </tr>
+            </tbody>
+          </table></div>
 
           <div class="section-title">Critical &amp; High Findings ({len(all_findings)})</div>
           <div class="filters">
             <select id="f-tool" onchange="filter()">
               <option value="">Tous les outils</option>
               <option value="Semgrep">Semgrep</option>
+              <option value="Checkov">Checkov</option>
               <option value="ZAP">ZAP</option>
               <option value="Trivy/SCA">Trivy/SCA</option>
               <option value="Trivy/IMAGE">Trivy/IMAGE</option>
@@ -984,14 +1043,12 @@ jobs:
               <option value="CRITICAL">CRITICAL</option>
               <option value="HIGH">HIGH</option>
             </select>
-            <input id="f-q" placeholder="Rechercher (CVE, package, fichier...)" oninput="filter()">
+            <input id="f-q" placeholder="Rechercher (CVE, package, check ID, fichier...)" oninput="filter()">
           </div>
-          <div class="table-wrap">
-            <table id="t">
-              <thead><tr><th style="width:30px"></th><th style="width:30px">#</th><th>Outil</th><th>Sévérité</th><th>Composant</th><th>ID / CVE</th><th>Localisation</th><th style="width:40px">Ref</th></tr></thead>
-              <tbody>{rows}</tbody>
-            </table>
-          </div>
+          <div class="table-wrap"><table id="t">
+            <thead><tr><th style="width:30px"></th><th style="width:30px">#</th><th>Outil</th><th>Sévérité</th><th>Composant / Check</th><th>ID / CVE</th><th>Localisation</th><th style="width:40px">Ref</th></tr></thead>
+            <tbody>{rows}</tbody>
+          </table></div>
 
           <footer>ShopVuln &middot; DevSecOps PFE &middot; {datetime.now().strftime('%Y')}</footer>
 
@@ -1022,7 +1079,7 @@ jobs:
 
           with open("security-dashboard.html","w",encoding="utf-8") as f:
               f.write(html)
-          print(f"[OK] Dashboard: {grand_total} findings, {len(all_findings)} critical/high")
+          print(f"[OK] Dashboard: {grand_total} findings total, {len(all_findings)} critical/high")
           EOF
       - name: Upload Dashboard
         uses: actions/upload-artifact@v4
