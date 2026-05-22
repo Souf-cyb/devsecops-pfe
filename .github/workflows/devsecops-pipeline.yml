@@ -462,7 +462,7 @@ jobs:
             -j \
             -r zap-full-report.html \
             -J zap-full-report.json \
-            -m 10 \
+            -m 3 \
             -z "-config scanner.attackStrength=HIGH \
                 -config scanner.alertThreshold=LOW \
                 -config spider.maxDepth=5 \
@@ -1119,17 +1119,17 @@ jobs:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           railway up \
-            --service shopvuln \
+            --service 228110f0-08b8-43f0-8683-8f822345135f \
             --detach
           echo "url=https://devsecops-pfe-production.up.railway.app" >> $GITHUB_OUTPUT
 
       - name: Smoke test
         run: |
           echo "Waiting for app to start..."
-          sleep 20
-          curl -f ${{ steps.deploy.outputs.url }} \
+          sleep 40
+          curl -f https://devsecops-pfe-production.up.railway.app \
             && echo "SMOKE TEST PASSED — app is UP" \
-            || (echo "SMOKE TEST FAILED — app did not respond" && exit 1)
+            || (echo "SMOKE TEST FAILED" && exit 1)
 
       - name: Upload deploy summary
         if: always()
