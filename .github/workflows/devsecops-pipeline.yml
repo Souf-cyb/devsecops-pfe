@@ -463,6 +463,7 @@ jobs:
             -r zap-full-report.html \
             -J zap-full-report.json \
             -m 3 \
+            -T 120 \
             -z "-config scanner.attackStrength=HIGH \
                 -config scanner.alertThreshold=LOW \
                 -config spider.maxDepth=5 \
@@ -1120,7 +1121,6 @@ jobs:
         run: |
           railway up \
             --service 228110f0-08b8-43f0-8683-8f822345135f \
-            --detach
           echo "url=https://devsecops-pfe-production.up.railway.app" >> $GITHUB_OUTPUT
 
       - name: Smoke test
