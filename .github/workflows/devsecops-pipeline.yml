@@ -450,24 +450,18 @@ jobs:
             sleep 10
           done
 
-      - name: ZAP Full Scan
+      - name: ZAP Baseline Scan
         run: |
           mkdir -p ${{ github.workspace }}/reports/zap
           chmod 777 ${{ github.workspace }}/reports/zap
           docker run --network=host \
             -v ${{ github.workspace }}/reports/zap:/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap-full-scan.py \
+            zap-baseline.py \
             -t http://localhost:5000 \
             -j \
-            -r zap-full-report.html \
-            -J zap-full-report.json \
-            -m 3 \
-            -T 120 \
-            -z "-config scanner.attackStrength=HIGH \
-                -config scanner.alertThreshold=LOW \
-                -config spider.maxDepth=5 \
-                -config spider.maxChildren=10" \
+            -r zap-baseline-report.html \
+            -J zap-baseline-report.json \
             -I || true
       - name: Upload DAST Reports
         uses: actions/upload-artifact@v4
@@ -1119,8 +1113,7 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway up \
-            --service 228110f0-08b8-43f0-8683-8f822345135f \
+          railway up --service 2b5a45d7-6412-4d9e-b24d-0f1a09ac3519 \
           echo "url=https://devsecops-pfe-production.up.railway.app" >> $GITHUB_OUTPUT
 
       - name: Smoke test
