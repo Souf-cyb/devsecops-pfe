@@ -86,7 +86,7 @@ jobs:
               results = data.get("results", []) if isinstance(data, dict) else []
               errors  = [r for r in results if isinstance(r, dict) and r.get("extra",{}).get("severity") == "ERROR"]
               print(f"High findings detected: {len(errors)}")
-              if len(errors) > 50:
+              if len(errors) > 20:
                   print("SECURITY GATE FAILED")
                   sys.exit(1)
               else:
@@ -1119,8 +1119,7 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway up \
-            --service 2b5a45d7-6412-4d9e-b24d-0f1a09ac3519 \
+          railway up --service 2b5a45d7-6412-4d9e-b24d-0f1a09ac3519 \
           echo "url=https://devsecops-pfe-production.up.railway.app" >> $GITHUB_OUTPUT
 
       - name: Smoke test
