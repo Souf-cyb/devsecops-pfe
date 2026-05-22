@@ -1129,7 +1129,7 @@ jobs:
           sleep 20
           curl -f ${{ steps.deploy.outputs.url }} \
             && echo "SMOKE TEST PASSED — app is UP" \
-            || (echo "SMOKE TEST FAILED — app did not respond" && exit 1)
+            || (echo "SMOKE TEST FAIILED — app did not respond" && exit 1)
 
       - name: Upload deploy summary
         if: always()
