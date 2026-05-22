@@ -450,19 +450,18 @@ jobs:
             sleep 10
           done
 
-      - name: ZAP Baseline Scan
+      - name: Run Nuclei DAST
         run: |
-          mkdir -p ${{ github.workspace }}/reports/zap
-          chmod 777 ${{ github.workspace }}/reports/zap
+          mkdir -p reports/nuclei
           docker run --network=host \
-            -v ${{ github.workspace }}/reports/zap:/zap/wrk/:rw \
-            ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py \
-            -t http://localhost:5000 \
+            -v ${{ github.workspace }}/reports/nuclei:/output \
+            projectdiscovery/nuclei:latest \
+            -u http://localhost:5000 \
+            -tags owasp \
+            -severity critical,high,medium \
             -j \
-            -r zap-baseline-report.html \
-            -J zap-baseline-report.json \
-            -I || true
+            -o /output/nuclei-report.json \
+            || true
       - name: Upload DAST Reports
         uses: actions/upload-artifact@v4
         if: always()
