@@ -1119,7 +1119,7 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway up --service 28110f0-08b8-43f0-8683-8f822345135f 
+          railway up --service 228110f0-08b8-43f0-8683-8f822345135f 
           echo "url=https://devsecops-pfe-production.up.railway.app" >> $GITHUB_OUTPUT
 
       - name: Smoke test
