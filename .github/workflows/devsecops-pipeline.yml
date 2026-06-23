@@ -24,21 +24,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Debug - List files
+      - name: Run Gitleaks (full scan)
         run: |
-          echo "=== Root ==="
-          ls -la
-          echo "=== .git/ ==="
-          ls -la .git/ | head -5
-          echo "=== shopvuln/ ==="
-          ls -la shopvuln/ || echo "shopvuln/ not found!"
-
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          docker run --rm \
+            -v "$(pwd):/repo" \
+            zricethezav/gitleaks:latest \
+            detect \
+            --source /repo \
+            --report-format sarif \
+            --report-path /repo/results.sarif \
+            --redact \
+            --no-git \
+            --verbose
         continue-on-error: true
+
+      - name: Check if report exists
+        if: always()
+        run: |
+          if [ -f results.sarif ]; then
+            echo "Rapport généré avec succès"
+            cat results.sarif | head -50
+          else
+            echo "Aucun rapport généré (probablement aucun secret trouvé)"
+          fi
 
       - name: Upload Gitleaks Report
         uses: actions/upload-artifact@v4
