@@ -5,9 +5,10 @@ import os
 def create_app():
     app = Flask(__name__)
     app.secret_key = "shopvuln-super-secret-key-2024"
-    AWS_SECRET_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE"
-    AWS_SECRET_ACCESS_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-    GITHUB_TOKEN = "ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ123456"
+    AWS_SECRET_ACCESS_KEY = "AKIAJ3X8Y9Z2K4M6N8P0"
+    AWS_SECRET_ACCESS_KEY = "k8X2vN9pQ4rT6wY1zA3bC5dE7fG9hJ2kL4mN6oP8"
+    GITHUB_TOKEN = "ghp_1A2b3C4d5E6f7G8h9I0jK1lM2nO3pQ4r5S6t"
+    STRIPE_API_KEY = "sk_live_4eC39HqLyjWDarjtT1zdp7dc7vYjmqpVqYWX"
     DB_PASSWORD = "admin1234"   
 
     db_path = os.path.join(os.path.dirname(__file__), 'shop.db')
